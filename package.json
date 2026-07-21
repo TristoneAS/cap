@@ -9,9 +9,21 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@emotion/cache": "^11.14.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^9.2.0",
+    "@mui/material": "^9.2.0",
+    "@mui/material-nextjs": "^9.1.1",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "html2canvas": "^1.4.1",
+    "mysql2": "^3.22.6",
     "next": "16.2.10",
+    "nodemailer": "^9.0.3",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "recharts": "^3.9.2"
   },
   "devDependencies": {
     "eslint": "^9",
