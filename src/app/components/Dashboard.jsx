@@ -30,6 +30,7 @@ import {
   ReportProblem,
   ArrowBack,
   AutoAwesome,
+  BarChart as BarChartIcon,
   Close,
   FileDownload,
 } from "@mui/icons-material";
@@ -1381,7 +1382,7 @@ function Dashboard() {
               <Button
                 size="small"
                 variant="contained"
-                startIcon={<AutoAwesome />}
+                startIcon={<BarChartIcon />}
                 onClick={() => setVistaMagica(true)}
                 sx={{
                   textTransform: "none",
