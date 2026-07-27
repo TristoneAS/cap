@@ -40,11 +40,11 @@ export async function POST(request) {
     const validacion = await validarRelacionesPregunta(body);
     if (validacion.error) return jsonError(validacion.error, validacion.status);
 
-    const { id_tipo_auditoria, id_area, id_sub_areas, id_tipo_nc, texto } =
+    const { id_tipo_auditoria, id_areas, id_sub_areas, pares, id_tipo_nc, texto } =
       validacion.data;
 
-    const values = id_sub_areas.map(() => "(?, ?, ?, ?, ?)").join(", ");
-    const params = id_sub_areas.flatMap((id_sub_area) => [
+    const values = pares.map(() => "(?, ?, ?, ?, ?)").join(", ");
+    const params = pares.flatMap(({ id_area, id_sub_area }) => [
       id_tipo_auditoria,
       id_area,
       id_sub_area,
@@ -59,13 +59,13 @@ export async function POST(request) {
       params,
     );
 
-    const creadas = id_sub_areas.length;
+    const creadas = pares.length;
     return jsonOk(
       {
         id_pregunta: result.insertId,
         creadas,
         id_tipo_auditoria,
-        id_area,
+        id_areas,
         id_sub_areas,
         id_tipo_nc,
         texto,

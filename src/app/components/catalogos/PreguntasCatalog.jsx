@@ -7,7 +7,7 @@ export default function PreguntasCatalog() {
     <CatalogCrud
       menuItemId="preguntas"
       title="Preguntas"
-      subtitle="Checklist de verificación vinculado a área, sub área y tipo de no conformidad. Al crear, puedes aplicar la misma pregunta a varias sub áreas. Al editar el texto/tipo, se actualizan todas las que digan exactamente lo mismo."
+      subtitle="Checklist de verificación vinculado a área, sub área y tipo de no conformidad. Al crear, puedes aplicar la misma pregunta a varias áreas (se incluyen todas sus sub áreas) o a varias sub áreas de un solo área. Al editar el texto/tipo, se actualizan todas las que digan exactamente lo mismo."
       apiBase="/api/preguntas"
       idField="id_pregunta"
       tableFilterFields={["id_area", "id_sub_area"]}
@@ -20,6 +20,9 @@ export default function PreguntasCatalog() {
           optionsApi: "/api/areas",
           optionValue: "id_area",
           optionLabel: "nombre",
+          multiCreate: true,
+          multiName: "id_areas",
+          multiLabel: "Varias áreas",
         },
         {
           name: "id_sub_area",
@@ -33,6 +36,8 @@ export default function PreguntasCatalog() {
           multiCreate: true,
           multiName: "id_sub_areas",
           multiLabel: "Varias sub áreas",
+          lockWhenParentMulti: "id_area",
+          autoAllSubAreasWhenParentMulti: "id_area",
         },
         {
           name: "id_tipo_auditoria",

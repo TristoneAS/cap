@@ -38,6 +38,25 @@ function multiKey(field) {
   return field.multiName || `${field.name}_ids`;
 }
 
+function parentAreaIds(form, fields, multiEnabled) {
+  const areaField = fields.find((f) => f.name === "id_area");
+  if (!areaField) return [];
+  if (multiEnabled[areaField.name]) {
+    return (form[multiKey(areaField)] || []).map(String).filter(Boolean);
+  }
+  const single = form[areaField.name];
+  return single ? [String(single)] : [];
+}
+
+function isLockedByParentMulti(field, form, fields, multiEnabled) {
+  if (!field.lockWhenParentMulti) return false;
+  const parentField = fields.find((f) => f.name === field.lockWhenParentMulti);
+  if (!parentField?.multiCreate || !multiEnabled[field.lockWhenParentMulti]) {
+    return false;
+  }
+  return parentAreaIds(form, fields, multiEnabled).length > 1;
+}
+
 function normalizeFieldValue(field, raw) {
   if (field.type === "number") {
     if (raw === undefined || raw === null || raw === "") {
@@ -152,10 +171,82 @@ function CatalogCrud({
     fields
       .filter((f) => f.dependsOn)
       .forEach((f) => {
-        const parentValue = form[f.dependsOn.parentField];
-        loadDependentOptions(f.name, parentValue);
+        const parentName = f.dependsOn.parentField;
+        const parentField = fields.find((x) => x.name === parentName);
+        if (!parentField) return;
+
+        const parentIds = multiEnabled[parentName]
+          ? (form[multiKey(parentField)] || []).map(String).filter(Boolean)
+          : form[parentName]
+            ? [String(form[parentName])]
+            : [];
+
+        if (
+          f.autoAllSubAreasWhenParentMulti &&
+          multiEnabled[parentName] &&
+          parentIds.length > 1
+        ) {
+          return;
+        }
+
+        if (parentIds.length === 1) {
+          loadDependentOptions(f.name, parentIds[0]);
+        } else if (!parentIds.length) {
+          loadDependentOptions(f.name, "");
+        }
       });
-  }, [form, fields, loadDependentOptions]);
+  }, [form, fields, loadDependentOptions, multiEnabled]);
+
+  const areaIdsMultiKey = fields.find((f) => f.name === "id_area")?.multiName || "id_areas";
+
+  useEffect(() => {
+    if (editId) return undefined;
+
+    const subField = fields.find((f) => f.autoAllSubAreasWhenParentMulti);
+    const areaField = fields.find((f) => f.name === "id_area");
+    if (!subField || !areaField?.multiCreate || !multiEnabled[areaField.name]) {
+      return undefined;
+    }
+
+    const parentIds = (form[multiKey(areaField)] || []).map(String).filter(Boolean);
+    if (parentIds.length <= 1) return undefined;
+
+    let cancelled = false;
+    (async () => {
+      const merged = [];
+      for (const areaId of parentIds) {
+        const url = `${subField.optionsApi}?${subField.dependsOn.queryParam}=${encodeURIComponent(areaId)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (res.ok && data.success) merged.push(...data.data);
+      }
+      if (cancelled) return;
+
+      merged.sort((a, b) =>
+        String(a[subField.optionLabel]).localeCompare(
+          String(b[subField.optionLabel]),
+          "es",
+        ),
+      );
+
+      setSelectOptions((prev) => ({ ...prev, [subField.name]: merged }));
+      setForm((prev) => ({
+        ...prev,
+        [subField.name]: "",
+        [multiKey(subField)]: merged.map((o) => String(o[subField.optionValue])),
+      }));
+      setMultiEnabled((prev) => ({ ...prev, [subField.name]: false }));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    editId,
+    fields,
+    multiEnabled.id_area,
+    JSON.stringify(form[areaIdsMultiKey] || []),
+  ]);
 
   const filteredRows = useMemo(() => {
     if (!tableFilterFields.length) return rows;
@@ -184,7 +275,10 @@ function CatalogCrud({
     setForm((prev) => {
       const next = { ...prev, [name]: value };
       fields
-        .filter((f) => f.dependsOn?.parentField === name)
+        .filter(
+          (f) =>
+            f.dependsOn?.parentField === name || f.lockWhenParentMulti === name,
+        )
         .forEach((f) => {
           next[f.name] = "";
           if (f.multiCreate) next[multiKey(f)] = [];
@@ -216,7 +310,20 @@ function CatalogCrud({
       for (const f of fields) {
         if (f.type === "number") payload[f.name] = Number(payload[f.name] || 0);
         if (f.type === "select") {
-          const useMulti = !editId && f.multiCreate && multiEnabled[f.name];
+          const lockedByParent = isLockedByParentMulti(f, form, fields, multiEnabled);
+          const useMulti = !editId && f.multiCreate && multiEnabled[f.name] && !lockedByParent;
+
+          if (lockedByParent) {
+            const ids = (form[multiKey(f)] || []).map(Number).filter(Boolean);
+            if (!ids.length) {
+              setError("No hay sub áreas para las áreas seleccionadas");
+              return;
+            }
+            payload[multiKey(f)] = ids;
+            delete payload[f.name];
+            continue;
+          }
+
           if (useMulti) {
             const ids = (form[multiKey(f)] || []).map(Number).filter(Boolean);
             if (!ids.length) {
@@ -337,24 +444,46 @@ function CatalogCrud({
               {fields.map((f) => {
                 const fieldWrapSx = f.fullWidth ? { gridColumn: "1 / -1" } : undefined;
                 if (f.type === "select") {
-                  const parentField = f.dependsOn?.parentField;
-                  const parentValue = parentField ? form[parentField] : true;
+                  const parentFieldName = f.dependsOn?.parentField;
+                  const parentFieldDef = parentFieldName
+                    ? fields.find((x) => x.name === parentFieldName)
+                    : null;
+                  let parentValue = parentFieldName ? form[parentFieldName] : true;
+                  if (parentFieldName && parentFieldDef && multiEnabled[parentFieldName]) {
+                    const parentIds = (form[multiKey(parentFieldDef)] || []).map(String);
+                    parentValue =
+                      parentIds.length === 1
+                        ? parentIds[0]
+                        : parentIds.length > 1
+                          ? true
+                          : false;
+                  }
                   const opts = f.optionsApi
                     ? selectOptions[f.name] || []
                     : f.options || [];
-                  const useMulti = !editId && f.multiCreate && multiEnabled[f.name];
+                  const lockedByParent = isLockedByParentMulti(
+                    f,
+                    form,
+                    fields,
+                    multiEnabled,
+                  );
+                  const useMulti =
+                    !editId && f.multiCreate && multiEnabled[f.name] && !lockedByParent;
                   const selectedMulti = (form[multiKey(f)] || [])
                     .map(String)
                     .map((id) => opts.find((o) => String(o[f.optionValue]) === id))
                     .filter(Boolean);
-                  const multiHelper =
-                    parentField && !parentValue
-                      ? `Seleccione ${fields.find((x) => x.name === parentField)?.label || "el campo anterior"}`
+                  const multiHelper = lockedByParent
+                    ? `${selectedMulti.length} sub área(s) incluidas automáticamente`
+                    : parentFieldName && !parentValue
+                      ? `Seleccione ${fields.find((x) => x.name === parentFieldName)?.label || "el campo anterior"}`
                       : useMulti
                         ? selectedMulti.length
-                          ? `${selectedMulti.length} sub área(s)`
+                          ? `${selectedMulti.length} ${f.label.toLowerCase()}(s)`
                           : undefined
                         : undefined;
+                  const fieldDisabled =
+                    lockedByParent || (parentFieldName ? !parentValue : false);
 
                   return (
                     <Box
@@ -367,11 +496,11 @@ function CatalogCrud({
                       }}
                     >
                       <Box sx={{ flex: 1, minWidth: 0 }}>
-                        {useMulti ? (
+                        {useMulti || lockedByParent ? (
                           <Autocomplete
                             multiple
                             size="small"
-                            disableCloseOnSelect
+                            disableCloseOnSelect={!lockedByParent}
                             limitTags={2}
                             options={opts}
                             value={selectedMulti}
@@ -380,14 +509,30 @@ function CatalogCrud({
                               String(a[f.optionValue]) === String(b[f.optionValue])
                             }
                             onChange={(_, value) => {
-                              setForm((prev) => ({
-                                ...prev,
-                                [multiKey(f)]: value.map((o) =>
-                                  String(o[f.optionValue]),
-                                ),
-                              }));
+                              if (lockedByParent) return;
+                              setForm((prev) => {
+                                const next = {
+                                  ...prev,
+                                  [multiKey(f)]: value.map((o) =>
+                                    String(o[f.optionValue]),
+                                  ),
+                                  [f.name]: "",
+                                };
+                                fields
+                                  .filter(
+                                    (child) =>
+                                      child.dependsOn?.parentField === f.name ||
+                                      child.lockWhenParentMulti === f.name,
+                                  )
+                                  .forEach((child) => {
+                                    next[child.name] = "";
+                                    next[multiKey(child)] = [];
+                                  });
+                                return next;
+                              });
                             }}
-                            disabled={parentField ? !parentValue : false}
+                            disabled={fieldDisabled}
+                            readOnly={lockedByParent}
                             renderInput={(params) => (
                               <TextField
                                 {...params}
@@ -406,7 +551,7 @@ function CatalogCrud({
                             value={normalizeFieldValue(f, form[f.name])}
                             onChange={(e) => handleChange(f.name, e.target.value)}
                             required={f.required}
-                            disabled={parentField ? !parentValue : false}
+                            disabled={fieldDisabled}
                             helperText={multiHelper}
                           >
                             {opts.map((opt) => (
@@ -420,7 +565,7 @@ function CatalogCrud({
                           </TextField>
                         )}
                       </Box>
-                      {!editId && f.multiCreate && (
+                      {!editId && f.multiCreate && !lockedByParent && (
                         <FormControlLabel
                           control={
                             <Checkbox
@@ -438,7 +583,7 @@ function CatalogCrud({
                                   [multiKey(f)]: [],
                                 }));
                               }}
-                              disabled={parentField ? !parentValue : false}
+                              disabled={parentFieldName ? !parentValue : false}
                             />
                           }
                           label={f.multiLabel || `Varias ${f.label.toLowerCase()}s`}
