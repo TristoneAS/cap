@@ -167,18 +167,20 @@ export async function generarAuditoriasMes(
 
   const [combos] = await capDb.query(
     `SELECT DISTINCT
-        p.id_area,
-        p.id_sub_area,
+        pa.id_area,
+        pa.id_sub_area,
         p.id_tipo_auditoria,
         a.nombre AS area_nombre,
         sa.nombre AS sub_area_nombre,
         t.nombre AS tipo_nombre,
         t.id_nivel_usuario
      FROM preguntas p
+     INNER JOIN pregunta_alcance pa
+       ON pa.id_pregunta = p.id_pregunta AND pa.estado = 'activo'
      INNER JOIN areas a
-       ON a.id_area = p.id_area AND a.estado = 'activo'
+       ON a.id_area = pa.id_area AND a.estado = 'activo'
      INNER JOIN sub_areas sa
-       ON sa.id_sub_area = p.id_sub_area AND sa.estado = 'activo'
+       ON sa.id_sub_area = pa.id_sub_area AND sa.estado = 'activo'
      INNER JOIN tipos_auditoria t
        ON t.id_tipo_auditoria = p.id_tipo_auditoria AND t.estado = 'activo'
      INNER JOIN niveles_usuario nu

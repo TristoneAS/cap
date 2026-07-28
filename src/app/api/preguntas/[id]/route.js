@@ -1,56 +1,70 @@
 import { capDb } from "@/libs/cap_db";
 import { jsonError, jsonOk, parseId, softDelete } from "@/libs/api_helpers";
-import { validarRelacionesPregunta } from "@/libs/preguntas_helpers";
+import {
+  PREGUNTA_MASTER_SELECT,
+  buildAlcanceResumen,
+  fetchAlcancePorPreguntas,
+  reemplazarAlcancePregunta,
+  validarAlcancePregunta,
+} from "@/libs/preguntas_helpers";
+
+export async function GET(_request, { params }) {
+  try {
+    const id = parseId(await params, "id");
+    const [rows] = await capDb.query(
+      `${PREGUNTA_MASTER_SELECT} AND p.id_pregunta = ?`,
+      [id],
+    );
+    if (!rows.length) return jsonError("Pregunta no encontrada", 404);
+
+    const alcanceMap = await fetchAlcancePorPreguntas([id]);
+    const alcance = alcanceMap.get(Number(id)) || [];
+
+    return jsonOk({
+      ...rows[0],
+      alcance,
+      alcance_resumen: buildAlcanceResumen(alcance),
+      total_sub_areas: alcance.length,
+    });
+  } catch (error) {
+    return jsonError("Error al consultar pregunta", 500, error.message);
+  }
+}
 
 export async function PUT(request, { params }) {
   try {
     const id = parseId(await params, "id");
     const body = await request.json();
-    const validacion = await validarRelacionesPregunta(body);
+    const validacion = await validarAlcancePregunta(body);
     if (validacion.error) return jsonError(validacion.error, validacion.status);
 
     const [existing] = await capDb.query(
-      `SELECT id_pregunta, texto
-       FROM preguntas
-       WHERE id_pregunta = ? AND estado = 'activo'`,
+      `SELECT id_pregunta FROM preguntas WHERE id_pregunta = ? AND estado = 'activo'`,
       [id],
     );
     if (!existing.length) return jsonError("Pregunta no encontrada", 404);
 
-    const { id_tipo_auditoria, id_area, id_sub_area, id_tipo_nc, texto } =
-      validacion.data;
-    const textoOriginal = existing[0].texto;
-
-    // Misma pregunta en varias sub áreas: actualiza contenido en todas las del mismo texto.
-    const [syncResult] = await capDb.query(
-      `UPDATE preguntas
-       SET id_tipo_auditoria = ?, id_tipo_nc = ?, texto = ?
-       WHERE estado = 'activo' AND texto = ?`,
-      [id_tipo_auditoria, id_tipo_nc, texto, textoOriginal],
-    );
+    const { id_tipo_auditoria, id_tipo_nc, texto, pares } = validacion.data;
 
     await capDb.query(
       `UPDATE preguntas
-       SET id_area = ?, id_sub_area = ?
+       SET id_tipo_auditoria = ?, id_tipo_nc = ?, texto = ?
        WHERE id_pregunta = ? AND estado = 'activo'`,
-      [id_area, id_sub_area, id],
+      [id_tipo_auditoria, id_tipo_nc, texto, id],
     );
 
-    const actualizadas = Number(syncResult.affectedRows) || 1;
+    await reemplazarAlcancePregunta(id, pares);
 
     return jsonOk(
       {
         id_pregunta: Number(id),
         id_tipo_auditoria,
-        id_area,
-        id_sub_area,
         id_tipo_nc,
         texto,
-        actualizadas,
+        alcance: pares,
+        total_sub_areas: pares.length,
       },
-      actualizadas === 1
-        ? "Pregunta actualizada"
-        : `Se actualizaron ${actualizadas} preguntas con el mismo texto`,
+      "Pregunta actualizada",
     );
   } catch (error) {
     return jsonError("Error al actualizar pregunta", 500, error.message);
@@ -62,6 +76,12 @@ export async function DELETE(_request, { params }) {
     const id = parseId(await params, "id");
     const row = await softDelete(capDb, "preguntas", "id_pregunta", id);
     if (!row) return jsonError("Pregunta no encontrada", 404);
+
+    await capDb.query(
+      `UPDATE pregunta_alcance SET estado = 'inactivo' WHERE id_pregunta = ?`,
+      [id],
+    );
+
     return jsonOk(null, "Pregunta eliminada");
   } catch (error) {
     return jsonError("Error al eliminar pregunta", 500, error.message);

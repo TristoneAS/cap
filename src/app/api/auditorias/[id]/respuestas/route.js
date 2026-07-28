@@ -117,11 +117,13 @@ export async function PUT(request, { params }) {
     const [preguntas] = await capDb.query(
       `SELECT p.id_pregunta
        FROM preguntas p
+       INNER JOIN pregunta_alcance pa
+         ON pa.id_pregunta = p.id_pregunta AND pa.estado = 'activo'
        INNER JOIN auditorias aud ON aud.id_auditoria = ?
        WHERE p.estado = 'activo'
          AND p.id_tipo_auditoria = aud.id_tipo_auditoria
-         AND p.id_area = aud.id_area
-         AND p.id_sub_area = aud.id_sub_area`,
+         AND pa.id_area = aud.id_area
+         AND pa.id_sub_area = aud.id_sub_area`,
       [idAuditoria],
     );
 

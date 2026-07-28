@@ -1,6 +1,6 @@
 import { capDb } from "@/libs/cap_db";
 import { jsonError, jsonOk, parseId } from "@/libs/api_helpers";
-import { PREGUNTAS_SELECT } from "@/libs/preguntas_helpers";
+import { PREGUNTAS_CHECKLIST_SELECT } from "@/libs/preguntas_helpers";
 import {
   descripcionHorarioTurno,
   puedeAuditarEnHorario,
@@ -53,17 +53,13 @@ export async function GET(request, { params }) {
     if (cerrada) {
       // Congelar checklist a lo que se respondió: no mezclar preguntas nuevas del catálogo.
       const [preguntasCerradas] = await capDb.query(
-        `SELECT p.id_pregunta, p.id_tipo_auditoria, p.id_area, p.id_sub_area, p.id_tipo_nc,
+        `SELECT p.id_pregunta, p.id_tipo_auditoria, p.id_tipo_nc,
                 p.texto, p.estado,
                 t.nombre AS tipo_nombre,
-                a.nombre AS area_nombre,
-                sa.nombre AS sub_area_nombre,
                 nc.nombre AS tipo_nc_nombre
          FROM auditoria_respuestas ar
          INNER JOIN preguntas p ON p.id_pregunta = ar.id_pregunta
          INNER JOIN tipos_auditoria t ON t.id_tipo_auditoria = p.id_tipo_auditoria
-         INNER JOIN areas a ON a.id_area = p.id_area
-         INNER JOIN sub_areas sa ON sa.id_sub_area = p.id_sub_area
          INNER JOIN tipos_no_conformidad nc ON nc.id_tipo_nc = p.id_tipo_nc
          WHERE ar.id_auditoria = ?
            AND ar.cumple IS NOT NULL
@@ -76,10 +72,10 @@ export async function GET(request, { params }) {
       }));
     } else {
       const [preguntas] = await capDb.query(
-        `${PREGUNTAS_SELECT}
+        `${PREGUNTAS_CHECKLIST_SELECT}
          AND p.id_tipo_auditoria = ?
-         AND p.id_area = ?
-         AND p.id_sub_area = ?
+         AND pa.id_area = ?
+         AND pa.id_sub_area = ?
          ORDER BY p.id_pregunta ASC`,
         [aud.id_tipo_auditoria, aud.id_area, aud.id_sub_area],
       );
