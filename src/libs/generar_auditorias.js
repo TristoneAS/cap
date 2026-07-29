@@ -83,10 +83,15 @@ async function resumenGeneracionPeriodo(periodo) {
      FROM auditorias_generacion_mes WHERE periodo_mes = ?`,
     [periodo],
   );
-  return rows[0] || null;
+  const row = rows[0] || null;
+  if (row && Number(row.creadas) === 0 && Number(row.omitidas) === 0) {
+    await liberarGeneracionPeriodo(periodo);
+    return null;
+  }
+  return row;
 }
 
-async function bloquearGeneracionPeriodo(periodo, { forzar = false } = {}) {
+async function verificarGeneracionPeriodo(periodo, { forzar = false } = {}) {
   if (forzar) return { ok: true };
 
   const previo = await resumenGeneracionPeriodo(periodo);
@@ -99,36 +104,30 @@ async function bloquearGeneracionPeriodo(periodo, { forzar = false } = {}) {
     };
   }
 
-  try {
-    await capDb.query(
-      `INSERT INTO auditorias_generacion_mes (periodo_mes) VALUES (?)`,
-      [periodo],
-    );
-    return { ok: true };
-  } catch (err) {
-    if (err.code === "ER_DUP_ENTRY") {
-      const dup = await resumenGeneracionPeriodo(periodo);
-      return {
-        ok: false,
-        status: 409,
-        error: `Ya se generaron las auditorías del periodo ${periodo}. Solo se permite una generación por mes.`,
-        data: { periodo_mes: periodo, ya_generado: true, generacion: dup },
-      };
-    }
-    throw err;
-  }
+  return { ok: true };
 }
 
-async function finalizarGeneracionPeriodo(
+async function registrarGeneracionPeriodo(
   periodo,
   { creadas, omitidas, automatica = false },
 ) {
   await capDb.query(
-    `UPDATE auditorias_generacion_mes
-     SET creadas = ?, omitidas = ?, automatica = ?
-     WHERE periodo_mes = ?`,
-    [creadas, omitidas, automatica ? 1 : 0, periodo],
+    `INSERT INTO auditorias_generacion_mes (periodo_mes, creadas, omitidas, automatica)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       creadas = VALUES(creadas),
+       omitidas = VALUES(omitidas),
+       automatica = VALUES(automatica),
+       fecha_generacion = CURRENT_TIMESTAMP`,
+    [periodo, creadas, omitidas, automatica ? 1 : 0],
   );
+}
+
+/** Quita bloqueo del periodo si la generación no terminó bien (p. ej. error previo). */
+async function liberarGeneracionPeriodo(periodo) {
+  await capDb.query(`DELETE FROM auditorias_generacion_mes WHERE periodo_mes = ?`, [
+    periodo,
+  ]);
 }
 
 export async function consultarGeneracionPeriodo(periodo_mes) {
@@ -160,11 +159,12 @@ export async function generarAuditoriasMes(
     };
   }
 
-  const bloqueo = await bloquearGeneracionPeriodo(periodo, { forzar });
+  const bloqueo = await verificarGeneracionPeriodo(periodo, { forzar });
   if (!bloqueo.ok) {
     return bloqueo;
   }
 
+  try {
   const [combos] = await capDb.query(
     `SELECT DISTINCT
         pa.id_area,
@@ -354,9 +354,6 @@ export async function generarAuditoriasMes(
   }
 
   if (creadas === 0 && omitidas === 0) {
-    await capDb.query(`DELETE FROM auditorias_generacion_mes WHERE periodo_mes = ?`, [
-      periodo,
-    ]);
     return {
       ok: false,
       status: 400,
@@ -396,7 +393,7 @@ export async function generarAuditoriasMes(
     }
   }
 
-  await finalizarGeneracionPeriodo(periodo, { creadas, omitidas, automatica });
+  await registrarGeneracionPeriodo(periodo, { creadas, omitidas, automatica });
 
   const data = {
     periodo_mes: periodo,
@@ -421,4 +418,8 @@ export async function generarAuditoriasMes(
   }${correos.correos_enviados ? `. ${correos.correos_enviados} correo(s) enviado(s)` : ""}`;
 
   return { ok: true, status: 200, data, message };
+  } catch (error) {
+    await liberarGeneracionPeriodo(periodo);
+    throw error;
+  }
 }

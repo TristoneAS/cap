@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Typography,
@@ -20,7 +20,7 @@ import {
   Checkbox,
   Autocomplete,
 } from "@mui/material";
-import { Add, Delete, Edit } from "@mui/icons-material";
+import { Add, Check, Delete, Edit } from "@mui/icons-material";
 import DashboardShell from "@/app/components/DashboardShell";
 import { BRAND } from "@/libs/theme_palette";
 import {
@@ -39,6 +39,46 @@ function parentAreaIds(form, multiArea) {
     return (form.id_areas || []).map(String).filter(Boolean);
   }
   return form.id_area ? [String(form.id_area)] : [];
+}
+
+function selectedSubIdsFromForm(form) {
+  const ids = (form.id_sub_areas || []).map(String).filter(Boolean);
+  if (form.id_sub_area) {
+    const single = String(form.id_sub_area);
+    if (!ids.includes(single)) ids.push(single);
+  }
+  return ids;
+}
+
+function lookupSubArea(subAreasList, subAreasById, subId) {
+  const key = String(subId);
+  if (subAreasById.has(key)) return subAreasById.get(key);
+  return subAreasList.find((s) => String(s.id_sub_area) === key);
+}
+
+function resolveSubOption(id, subAreaOptions, subAreasById) {
+  const key = String(id);
+  return (
+    subAreaOptions.find((s) => String(s.id_sub_area) === key) ||
+    subAreasById.get(key) || {
+      id_sub_area: id,
+      nombre: `Sub área ${id}`,
+      area_nombre: "",
+    }
+  );
+}
+function filterSubAreasByRemovedAreas(
+  subAreaIds,
+  subAreasList,
+  subAreasById,
+  removedAreaIds,
+) {
+  if (!removedAreaIds.size) return subAreaIds;
+  return subAreaIds.filter((subId) => {
+    const sub = lookupSubArea(subAreasList, subAreasById, subId);
+    if (!sub) return true;
+    return !removedAreaIds.has(String(sub.id_area));
+  });
 }
 
 const emptyForm = {
@@ -67,6 +107,9 @@ export default function PreguntasCatalog() {
   const [multiSubArea, setMultiSubArea] = useState(false);
   const [areas, setAreas] = useState([]);
   const [subAreas, setSubAreas] = useState([]);
+  const [subAreasById, setSubAreasById] = useState(() => new Map());
+  const subAreasByIdRef = useRef(subAreasById);
+  subAreasByIdRef.current = subAreasById;
   const [tiposAuditoria, setTiposAuditoria] = useState([]);
   const [tiposNc, setTiposNc] = useState([]);
 
@@ -139,15 +182,13 @@ export default function PreguntasCatalog() {
         String(a.nombre).localeCompare(String(b.nombre), "es"),
       );
       setSubAreas(merged);
-
-      const validIds = new Set(merged.map((s) => String(s.id_sub_area)));
-      setForm((prev) => ({
-        ...prev,
-        id_sub_areas: (prev.id_sub_areas || []).filter((id) =>
-          validIds.has(String(id)),
-        ),
-        id_sub_area: validIds.has(String(prev.id_sub_area)) ? prev.id_sub_area : "",
-      }));
+      setSubAreasById((prev) => {
+        const next = new Map(prev);
+        for (const sub of merged) {
+          next.set(String(sub.id_sub_area), sub);
+        }
+        return next;
+      });
     })();
 
     return () => {
@@ -189,6 +230,7 @@ export default function PreguntasCatalog() {
     setMultiArea(false);
     setMultiSubArea(false);
     setSubAreas([]);
+    setSubAreasById(new Map());
   };
 
   const handleEdit = async () => {
@@ -239,10 +281,13 @@ export default function PreguntasCatalog() {
     }
 
     if (useMultiSub) {
-      payload.id_sub_areas = (form.id_sub_areas || []).map(Number).filter(Boolean);
-    } else if (form.id_sub_area) {
-      payload.id_sub_area = Number(form.id_sub_area);
-      payload.id_sub_areas = [Number(form.id_sub_area)];
+      payload.id_sub_areas = selectedSubIdsFromForm(form).map(Number).filter(Boolean);
+    } else {
+      const subIds = selectedSubIdsFromForm(form);
+      if (subIds.length === 1) {
+        payload.id_sub_area = Number(subIds[0]);
+        payload.id_sub_areas = [Number(subIds[0])];
+      }
     }
 
     return payload;
@@ -309,10 +354,29 @@ export default function PreguntasCatalog() {
     }
   };
 
-  const selectedSubMulti = (form.id_sub_areas || [])
-    .map(String)
-    .map((id) => subAreas.find((s) => String(s.id_sub_area) === id))
-    .filter(Boolean);
+  const subAreaOptions = useMemo(() => {
+    const map = new Map(subAreas.map((s) => [String(s.id_sub_area), s]));
+    for (const id of selectedSubIdsFromForm(form)) {
+      const key = String(id);
+      if (!map.has(key) && subAreasById.has(key)) {
+        map.set(key, subAreasById.get(key));
+      }
+    }
+    return [...map.values()].sort((a, b) =>
+      `${a.area_nombre || ""} ${a.nombre}`.localeCompare(
+        `${b.area_nombre || ""} ${b.nombre}`,
+        "es",
+      ),
+    );
+  }, [subAreas, form.id_sub_areas, form.id_sub_area, subAreasById]);
+
+  const selectedSubMulti = useMemo(
+    () =>
+      selectedSubIdsFromForm(form).map((id) =>
+        resolveSubOption(id, subAreaOptions, subAreasById),
+      ),
+    [form.id_sub_areas, form.id_sub_area, subAreaOptions, subAreasById],
+  );
 
   const selectedAreaMulti = (form.id_areas || [])
     .map(String)
@@ -406,13 +470,27 @@ export default function PreguntasCatalog() {
                         String(a.id_area) === String(b.id_area)
                       }
                       onChange={(_, value) => {
-                        setForm((prev) => ({
-                          ...prev,
-                          id_areas: value.map((o) => String(o.id_area)),
-                          id_area: "",
-                          id_sub_area: "",
-                          id_sub_areas: [],
-                        }));
+                        const newAreaIds = value.map((o) => String(o.id_area));
+                        setForm((prev) => {
+                          const removedAreaIds = new Set(
+                            (prev.id_areas || []).filter(
+                              (id) => !newAreaIds.includes(String(id)),
+                            ),
+                          );
+                          const keptSubs = filterSubAreasByRemovedAreas(
+                            selectedSubIdsFromForm(prev),
+                            subAreas,
+                            subAreasByIdRef.current,
+                            removedAreaIds,
+                          );
+                          return {
+                            ...prev,
+                            id_areas: newAreaIds,
+                            id_area: "",
+                            id_sub_area: "",
+                            id_sub_areas: keptSubs,
+                          };
+                        });
                       }}
                       renderInput={(params) => (
                         <TextField {...params} label="Áreas (alcance)" required />
@@ -425,14 +503,16 @@ export default function PreguntasCatalog() {
                       size="small"
                       label="Área (alcance)"
                       value={form.id_area}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const newArea = e.target.value;
+                        const areaChanged = String(form.id_area) !== String(newArea);
                         setForm((prev) => ({
                           ...prev,
-                          id_area: e.target.value,
-                          id_sub_area: "",
-                          id_sub_areas: [],
-                        }))
-                      }
+                          id_area: newArea,
+                          id_sub_area: areaChanged ? "" : prev.id_sub_area,
+                          id_sub_areas: areaChanged ? [] : prev.id_sub_areas,
+                        }));
+                      }}
                       required
                     >
                       {areas.map((a) => (
@@ -484,7 +564,7 @@ export default function PreguntasCatalog() {
                       disableCloseOnSelect
                       disabled={!areaIds.length}
                       limitTags={3}
-                      options={subAreas}
+                      options={subAreaOptions}
                       value={selectedSubMulti}
                       getOptionLabel={(o) =>
                         o.area_nombre ? `${o.area_nombre} · ${o.nombre}` : o.nombre || ""
@@ -492,7 +572,56 @@ export default function PreguntasCatalog() {
                       isOptionEqualToValue={(a, b) =>
                         String(a.id_sub_area) === String(b.id_sub_area)
                       }
+                      renderOption={(props, option, { selected }) => {
+                        const { key, ...rest } = props;
+                        const label = option.area_nombre
+                          ? `${option.area_nombre} · ${option.nombre}`
+                          : option.nombre || "";
+                        return (
+                          <Box
+                            component="li"
+                            key={key}
+                            {...rest}
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 1,
+                              py: 1,
+                              px: 1.5,
+                              ...(selected
+                                ? {
+                                    bgcolor: `${BRAND.soft} !important`,
+                                    color: BRAND.primaryDeep,
+                                    fontWeight: 700,
+                                    borderLeft: `3px solid ${BRAND.primary}`,
+                                    "&.Mui-focused": {
+                                      bgcolor: `${BRAND.primary} !important`,
+                                      color: "#fff",
+                                      "& .MuiSvgIcon-root": { color: "#fff" },
+                                    },
+                                  }
+                                : {}),
+                            }}
+                          >
+                            <Box component="span" sx={{ flex: 1 }}>
+                              {label}
+                            </Box>
+                            {selected && (
+                              <Check
+                                sx={{ fontSize: 18, color: BRAND.primary, flexShrink: 0 }}
+                              />
+                            )}
+                          </Box>
+                        );
+                      }}
                       onChange={(_, value) => {
+                        setSubAreasById((prev) => {
+                          const next = new Map(prev);
+                          for (const sub of value) {
+                            next.set(String(sub.id_sub_area), sub);
+                          }
+                          return next;
+                        });
                         setForm((prev) => ({
                           ...prev,
                           id_sub_areas: value.map((o) => String(o.id_sub_area)),
@@ -519,9 +648,20 @@ export default function PreguntasCatalog() {
                       size="small"
                       label="Sub área (alcance)"
                       value={form.id_sub_area}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, id_sub_area: e.target.value }))
-                      }
+                      onChange={(e) => {
+                        const subId = e.target.value;
+                        const sub = subAreas.find(
+                          (s) => String(s.id_sub_area) === String(subId),
+                        );
+                        if (sub) {
+                          setSubAreasById((prev) => {
+                            const next = new Map(prev);
+                            next.set(String(sub.id_sub_area), sub);
+                            return next;
+                          });
+                        }
+                        setForm((prev) => ({ ...prev, id_sub_area: subId }));
+                      }}
                       disabled={!areaIds.length}
                       required
                     >
