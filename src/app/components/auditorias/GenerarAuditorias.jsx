@@ -13,7 +13,17 @@ import {
 import { AutoMode, Email, Visibility } from "@mui/icons-material";
 import { useRouter } from "next/navigation";
 import DashboardShell from "@/app/components/DashboardShell";
+import CorreosProgresoModal from "@/app/components/auditorias/CorreosProgresoModal";
 import { BRAND } from "@/libs/theme_palette";
+
+const emptyCorreoProgress = {
+  open: false,
+  enviados: 0,
+  total: 0,
+  procesados: 0,
+  terminado: false,
+  errores: [],
+};
 
 function GenerarAuditorias() {
   const router = useRouter();
@@ -27,6 +37,7 @@ function GenerarAuditorias() {
   const [error, setError] = useState("");
   const [yaGenerado, setYaGenerado] = useState(false);
   const [infoGeneracion, setInfoGeneracion] = useState(null);
+  const [correoProgress, setCorreoProgress] = useState(emptyCorreoProgress);
 
   const cargarEstado = useCallback(async () => {
     try {
@@ -46,6 +57,75 @@ function GenerarAuditorias() {
   useEffect(() => {
     cargarEstado();
   }, [cargarEstado]);
+
+  const enviarCorreosConProgreso = async (asignaciones, periodoMes) => {
+    const lista = asignaciones || [];
+    const total = lista.length;
+
+    if (!total) {
+      return { correos_enviados: 0, correos_omitidos: 0, errores: [] };
+    }
+
+    setCorreoProgress({
+      open: true,
+      enviados: 0,
+      total,
+      procesados: 0,
+      terminado: false,
+      errores: [],
+    });
+
+    let correos_enviados = 0;
+    let correos_omitidos = 0;
+    const errores = [];
+
+    for (let i = 0; i < lista.length; i += 1) {
+      const item = lista[i];
+      try {
+        const res = await fetch("/api/auditorias/notificar-asignaciones/uno", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            periodo_mes: periodoMes,
+            emp_id: item.emp_id,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          correos_enviados += 1;
+        } else {
+          correos_omitidos += 1;
+          errores.push(data.error || `Error con ${item.emp_id}`);
+        }
+      } catch {
+        correos_omitidos += 1;
+        errores.push(`Error de conexión con ${item.emp_id}`);
+      }
+
+      setCorreoProgress({
+        open: true,
+        enviados: correos_enviados,
+        total,
+        procesados: i + 1,
+        terminado: false,
+        errores: [...errores],
+      });
+    }
+
+    setCorreoProgress({
+      open: true,
+      enviados: correos_enviados,
+      total,
+      procesados: total,
+      terminado: true,
+      errores,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    setCorreoProgress(emptyCorreoProgress);
+
+    return { correos_enviados, correos_omitidos, errores };
+  };
 
   const handleGenerar = async () => {
     if (yaGenerado) {
@@ -68,7 +148,7 @@ function GenerarAuditorias() {
       const res = await fetch("/api/auditorias", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ periodo_mes: periodo }),
+        body: JSON.stringify({ periodo_mes: periodo, enviar_correos: false }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -79,7 +159,25 @@ function GenerarAuditorias() {
         setError(data.error || "Error al generar");
         return;
       }
-      setResult(data.data);
+
+      const generacion = data.data || {};
+      let correos = {
+        correos_enviados: 0,
+        correos_omitidos: 0,
+        errores: [],
+      };
+
+      const asignaciones = generacion.asignaciones_correo || [];
+      if (asignaciones.length > 0) {
+        correos = await enviarCorreosConProgreso(asignaciones, periodo);
+      }
+
+      setResult({
+        ...generacion,
+        correos_enviados: correos.correos_enviados,
+        correos_omitidos: correos.correos_omitidos,
+        errores_correo: correos.errores,
+      });
       setYaGenerado(true);
       cargarEstado();
     } catch {
@@ -93,23 +191,25 @@ function GenerarAuditorias() {
     setLoadingCorreos(true);
     setError("");
     try {
-      const res = await fetch("/api/auditorias/notificar-asignaciones", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ periodo_mes: periodo }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Error al enviar correos");
+      const listRes = await fetch(
+        `/api/auditorias/notificar-asignaciones?periodo_mes=${encodeURIComponent(periodo)}`,
+      );
+      const listData = await listRes.json();
+      if (!listRes.ok) {
+        setError(listData.error || "Error al obtener destinatarios");
         return;
       }
+
+      const asignaciones = listData.data?.asignaciones || [];
+      const correos = await enviarCorreosConProgreso(asignaciones, periodo);
+
       setResult({
         tipo: "correos",
         periodo_mes: periodo,
-        usuarios: data.data?.usuarios ?? 0,
-        correos_enviados: data.data?.correos_enviados ?? 0,
-        correos_omitidos: data.data?.correos_omitidos ?? 0,
-        errores_correo: data.data?.errores ?? [],
+        usuarios: asignaciones.length,
+        correos_enviados: correos.correos_enviados,
+        correos_omitidos: correos.correos_omitidos,
+        errores_correo: correos.errores,
       });
     } catch {
       setError("Error de conexión al enviar correos");
@@ -120,6 +220,8 @@ function GenerarAuditorias() {
 
   return (
     <DashboardShell selectedItemId="generar-auditorias">
+      <CorreosProgresoModal {...correoProgress} />
+
       <Box sx={{ maxWidth: 640, mx: "auto" }}>
         <Typography variant="h5" sx={{ fontWeight: 800, color: BRAND.ink, mb: 1 }}>
           Generar auditorías del mes
@@ -159,7 +261,7 @@ function GenerarAuditorias() {
           <Button
             variant="contained"
             startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <AutoMode />}
-            disabled={loading || yaGenerado}
+            disabled={loading || loadingCorreos || yaGenerado}
             onClick={handleGenerar}
             sx={{
               bgcolor: BRAND.primary,

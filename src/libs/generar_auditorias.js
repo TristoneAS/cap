@@ -149,7 +149,7 @@ export async function generarAuditoriasMes(
   periodo_mes = periodoMesPlanta(),
   opts = {},
 ) {
-  const { forzar = false, automatica = false } = opts;
+  const { forzar = false, automatica = false, enviarCorreos = true } = opts;
   const periodo = String(periodo_mes ?? periodoMesPlanta()).trim();
   if (!/^\d{4}-\d{2}$/.test(periodo)) {
     return {
@@ -369,13 +369,14 @@ export async function generarAuditoriasMes(
   }
 
   const combosSinAuditor = combos.length - combosConAuditor.length;
+  const asignacionesCorreo = [...nuevasPorUsuario.values()];
 
   let correos = { correos_enviados: 0, correos_omitidos: 0, errores: [] };
-  if (nuevasPorUsuario.size > 0) {
+  if (asignacionesCorreo.length > 0 && enviarCorreos) {
     if (!getSmtpConfig().configured) {
       correos = {
         correos_enviados: 0,
-        correos_omitidos: nuevasPorUsuario.size,
+        correos_omitidos: asignacionesCorreo.length,
         errores: [
           "SMTP no configurado. Reinicie npm run dev después de guardar .env.local (EMAIL_HOST, EMAIL_USER, EMAIL_PASSWORD).",
         ],
@@ -385,7 +386,7 @@ export async function generarAuditoriasMes(
         correos = await notificarUsuariosAuditoriasAsignadas({
           periodo,
           fechaProgramada: fechaVencimiento,
-          asignaciones: [...nuevasPorUsuario.values()],
+          asignaciones: asignacionesCorreo,
         });
       } catch (err) {
         correos.errores = [err.message || "Error al enviar correos de asignación"];
@@ -408,6 +409,8 @@ export async function generarAuditoriasMes(
     correos_enviados: correos.correos_enviados,
     correos_omitidos: correos.correos_omitidos,
     errores_correo: correos.errores,
+    asignaciones_correo: asignacionesCorreo,
+    fecha_programada: fechaVencimiento,
     ya_generado: true,
   };
 

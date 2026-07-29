@@ -116,8 +116,13 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
     const periodo_mes = String(body.periodo_mes ?? periodoMesPlanta()).trim();
     const forzar = body.forzar === true || body.forzar === "true";
+    const enviarCorreos = body.enviar_correos !== false && body.enviarCorreos !== false;
 
-    const resultado = await generarAuditoriasMes(periodo_mes, { forzar, automatica: false });
+    const resultado = await generarAuditoriasMes(periodo_mes, {
+      forzar,
+      automatica: false,
+      enviarCorreos,
+    });
 
     if (!resultado.ok) {
       return jsonError(resultado.error, resultado.status || 400, resultado.data);

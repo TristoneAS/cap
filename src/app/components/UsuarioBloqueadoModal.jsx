@@ -24,13 +24,14 @@ function UsuarioBloqueadoModal({ open, empId }) {
   return (
     <Dialog
       open={open}
-      disableEscapeKeyDown
       onClose={() => {}}
-      PaperProps={{
-        sx: {
-          borderRadius: 1,
-          maxWidth: 440,
-          overflow: "hidden",
+      slotProps={{
+        paper: {
+          sx: {
+            borderRadius: 1,
+            maxWidth: 440,
+            overflow: "hidden",
+          },
         },
       }}
     >

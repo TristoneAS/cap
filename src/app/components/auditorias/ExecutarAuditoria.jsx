@@ -21,8 +21,9 @@ import {
   TableHead,
   TableRow,
 } from "@mui/material";
-import { ArrowBack, Save } from "@mui/icons-material";
+import { ArrowBack, Download, Save } from "@mui/icons-material";
 import DashboardShell from "@/app/components/DashboardShell";
+import { descargarHojaAuditoriaWord } from "@/libs/export_auditoria_hoja";
 import { isAdminClient } from "@/libs/dashboard_access";
 import { BRAND } from "@/libs/theme_palette";
 import { COLOR_VENCIDA, colorEstadoAuditoria, esAuditoriaVencida } from "@/libs/auditoria_fechas";
@@ -536,23 +537,34 @@ function ExecutarAuditoria({ idAuditoria }) {
           </Paper>
         )}
 
-        {preguntas.length > 0 && !cerrada && (
-          <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
+        {preguntas.length > 0 && (
+          <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end", gap: 1, flexWrap: "wrap" }}>
             <Button
-              variant="contained"
+              variant="outlined"
               size="medium"
-              startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <Save />}
-              disabled={saving || fueraHorario}
-              onClick={handleGuardar}
-              sx={{
-                bgcolor: BRAND.primary,
-                "&:hover": { bgcolor: BRAND.primaryDark },
-                textTransform: "none",
-                fontWeight: 700,
-              }}
+              startIcon={<Download />}
+              onClick={() => descargarHojaAuditoriaWord({ auditoria, preguntas })}
+              sx={{ textTransform: "none", fontWeight: 700 }}
             >
-              {saving ? "Guardando..." : "Guardar auditoría"}
+              Descargar Word
             </Button>
+            {!cerrada && (
+              <Button
+                variant="contained"
+                size="medium"
+                startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <Save />}
+                disabled={saving || fueraHorario}
+                onClick={handleGuardar}
+                sx={{
+                  bgcolor: BRAND.primary,
+                  "&:hover": { bgcolor: BRAND.primaryDark },
+                  textTransform: "none",
+                  fontWeight: 700,
+                }}
+              >
+                {saving ? "Guardando..." : "Guardar auditoría"}
+              </Button>
+            )}
           </Box>
         )}
       </Box>

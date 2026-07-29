@@ -1,5 +1,12 @@
+import { capDb } from "@/libs/cap_db";
 import { empleados } from "@/libs/empleados";
-import { isValidEmail, sendMailMessageWithRetry, createMailTransporter, sleep, getEmailDelayMs } from "@/libs/mailer";
+import {
+  isValidEmail,
+  sendMailMessageWithRetry,
+  createMailTransporter,
+  sleep,
+  getEmailDelayMs,
+} from "@/libs/mailer";
 import { mapEmpleadoRow, nombreCompletoEmpleado } from "@/libs/empleado_mapper";
 import { ENLACE_CAP_CORREO } from "@/libs/notificar_jefes_auditorias";
 
@@ -71,6 +78,39 @@ function buildTextoCorreoUsuario({ nombre, periodo, fechaProgramada, auditorias,
   return lineas.join("\n");
 }
 
+export async function listarAsignacionesCorreoPeriodo(periodo_mes) {
+  const periodo = String(periodo_mes ?? "").trim();
+  const [rows] = await capDb.query(
+    `SELECT aud.emp_id, aud.emp_nombre, aud.turno,
+            a.nombre AS area_nombre, sa.nombre AS sub_area_nombre
+     FROM auditorias aud
+     INNER JOIN areas a ON a.id_area = aud.id_area
+     INNER JOIN sub_areas sa ON sa.id_sub_area = aud.id_sub_area
+     WHERE aud.periodo_mes = ?
+     ORDER BY aud.emp_nombre ASC, a.nombre ASC, sa.nombre ASC, aud.turno ASC`,
+    [periodo],
+  );
+
+  const porUsuario = new Map();
+  for (const row of rows) {
+    const empId = String(row.emp_id);
+    if (!porUsuario.has(empId)) {
+      porUsuario.set(empId, {
+        emp_id: empId,
+        nombre: row.emp_nombre,
+        auditorias: [],
+      });
+    }
+    porUsuario.get(empId).auditorias.push({
+      area_nombre: row.area_nombre,
+      sub_area_nombre: row.sub_area_nombre,
+      turno: row.turno,
+    });
+  }
+
+  return [...porUsuario.values()];
+}
+
 async function buscarEmpleado(empId) {
   const id = String(empId ?? "").trim();
   if (!id) return null;
@@ -118,6 +158,49 @@ export async function notificarUsuarioAuditoriasAsignadas({
 }
 
 /**
+ * Envía el correo de asignación a un solo usuario.
+ */
+export async function notificarAsignacionUsuario({
+  periodo,
+  fechaProgramada,
+  asignacion,
+  transporter,
+}) {
+  const empId = String(asignacion?.emp_id ?? "").trim();
+  const auditorias = asignacion?.auditorias || [];
+  if (!empId || !auditorias.length) {
+    return { enviado: false, error: "Asignación inválida" };
+  }
+
+  const emp = await buscarEmpleado(empId);
+  const correo = String(emp?.emp_correo ?? "").trim();
+  const nombre =
+    nombreCompletoEmpleado(emp) ||
+    asignacion.nombre ||
+    emp?.emp_nombre ||
+    empId;
+
+  if (!isValidEmail(correo)) {
+    return {
+      enviado: false,
+      error: `${empId} (${nombre}): sin correo válido registrado`,
+    };
+  }
+
+  const mailer = transporter || createMailTransporter();
+  await notificarUsuarioAuditoriasAsignadas({
+    to: correo,
+    nombre,
+    periodo,
+    fechaProgramada,
+    auditorias,
+    transporter: mailer,
+  });
+
+  return { enviado: true, correo, emp_id: empId, nombre };
+}
+
+/**
  * Un correo por usuario con todas las auditorías recién asignadas en la generación.
  * @param {{ periodo: string, fechaProgramada: string, asignaciones: array }} params
  */
@@ -142,38 +225,27 @@ export async function notificarUsuariosAuditoriasAsignadas({
     const auditorias = item.auditorias || [];
     if (!empId || !auditorias.length) continue;
 
-    const emp = await buscarEmpleado(empId);
-    const correo = String(emp?.emp_correo ?? "").trim();
-    const nombre =
-      nombreCompletoEmpleado(emp) ||
-      item.nombre ||
-      emp?.emp_nombre ||
-      empId;
-
-    if (!isValidEmail(correo)) {
-      correos_omitidos += 1;
-      errores.push(`${empId} (${nombre}): sin correo válido registrado`);
-      continue;
-    }
-
     try {
       if (enviadosEnLote > 0 && delayMs > 0) {
         await sleep(delayMs);
       }
-      await notificarUsuarioAuditoriasAsignadas({
-        to: correo,
-        nombre,
+      const resultado = await notificarAsignacionUsuario({
         periodo,
         fechaProgramada,
-        auditorias,
+        asignacion: item,
         transporter,
       });
-      correos_enviados += 1;
-      enviadosEnLote += 1;
+      if (resultado.enviado) {
+        correos_enviados += 1;
+        enviadosEnLote += 1;
+      } else {
+        correos_omitidos += 1;
+        if (resultado.error) errores.push(resultado.error);
+      }
     } catch (err) {
       correos_omitidos += 1;
       errores.push(
-        `${empId} (${nombre}): ${err.message || "Error al enviar correo"}`,
+        `${empId}: ${err.message || "Error al enviar correo"}`,
       );
     }
   }
