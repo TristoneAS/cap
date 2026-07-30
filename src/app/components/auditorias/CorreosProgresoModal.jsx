@@ -15,12 +15,14 @@ import { BRAND } from "@/libs/theme_palette";
 export default function CorreosProgresoModal({
   open,
   enviados = 0,
+  omitidos = 0,
   total = 0,
   procesados = 0,
   terminado = false,
   errores = [],
 }) {
   const pct = total > 0 ? Math.round((procesados / total) * 100) : 0;
+  const fallidos = omitidos > 0 ? omitidos : Math.max(0, procesados - enviados);
 
   return (
     <Dialog
@@ -45,8 +47,15 @@ export default function CorreosProgresoModal({
           </Typography>
 
           <Typography sx={{ color: BRAND.primaryDark, fontWeight: 700, fontSize: "1.25rem" }}>
-            {enviados} de {total} correo{total === 1 ? "" : "s"} enviado{enviados === 1 ? "" : "s"}
+            {procesados} de {total} procesado{procesados === 1 ? "" : "s"}
           </Typography>
+
+          {(enviados > 0 || fallidos > 0) && (
+            <Typography variant="body2" sx={{ color: BRAND.muted, textAlign: "center" }}>
+              {enviados} enviado{enviados === 1 ? "" : "s"}
+              {fallidos > 0 ? ` · ${fallidos} no enviado${fallidos === 1 ? "" : "s"}` : ""}
+            </Typography>
+          )}
 
           {!terminado && total > 0 && (
             <Box sx={{ width: "100%" }}>
@@ -60,12 +69,6 @@ export default function CorreosProgresoModal({
                   "& .MuiLinearProgress-bar": { bgcolor: BRAND.primary, borderRadius: 4 },
                 }}
               />
-              <Typography
-                variant="caption"
-                sx={{ display: "block", textAlign: "center", mt: 0.75, color: BRAND.muted }}
-              >
-                Procesando {procesados} de {total}…
-              </Typography>
             </Box>
           )}
 

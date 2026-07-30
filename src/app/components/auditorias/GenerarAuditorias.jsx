@@ -19,6 +19,7 @@ import { BRAND } from "@/libs/theme_palette";
 const emptyCorreoProgress = {
   open: false,
   enviados: 0,
+  omitidos: 0,
   total: 0,
   procesados: 0,
   terminado: false,
@@ -69,6 +70,7 @@ function GenerarAuditorias() {
     setCorreoProgress({
       open: true,
       enviados: 0,
+      omitidos: 0,
       total,
       procesados: 0,
       terminado: false,
@@ -125,6 +127,7 @@ function GenerarAuditorias() {
           setCorreoProgress({
             open: true,
             enviados: correos_enviados,
+            omitidos: correos_omitidos,
             total: evt.total ?? total,
             procesados: evt.procesados ?? 0,
             terminado: Boolean(evt.terminado),
@@ -144,6 +147,7 @@ function GenerarAuditorias() {
     setCorreoProgress({
       open: true,
       enviados: correos_enviados,
+      omitidos: correos_omitidos,
       total,
       procesados: total,
       terminado: true,

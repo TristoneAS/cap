@@ -91,9 +91,15 @@ export function closeMailTransporter(transporter) {
   }
 }
 
-function isRateLimitError(err) {
+export function isRateLimitError(err) {
   const msg = String(err?.message || err || "").toLowerCase();
   return msg.includes("421") || msg.includes("rate") || msg.includes("limit");
+}
+
+/** Espera tras 421 / rate limit (independiente de EMAIL_DELAY_MS). */
+export function getRateLimitBackoffMs() {
+  const n = Number(process.env.EMAIL_RATE_LIMIT_BACKOFF_MS ?? 5000);
+  return Number.isFinite(n) && n > 0 ? n : 5000;
 }
 
 /**
@@ -125,6 +131,7 @@ export async function sendMailMessage(opts, transporter) {
 export async function sendMailMessageWithRetry(opts, transporter) {
   const maxRetries = Number(process.env.EMAIL_MAX_RETRIES || 3);
   const delayMs = getEmailDelayMs();
+  const backoffMs = getRateLimitBackoffMs();
 
   for (let intento = 0; intento < maxRetries; intento += 1) {
     try {
@@ -132,7 +139,8 @@ export async function sendMailMessageWithRetry(opts, transporter) {
       return;
     } catch (err) {
       if (intento < maxRetries - 1 && isRateLimitError(err)) {
-        await sleep(delayMs * (intento + 2));
+        const wait = Math.max(delayMs * (intento + 2), backoffMs * (intento + 1));
+        await sleep(wait);
         continue;
       }
       throw err;

@@ -8,6 +8,8 @@ import {
   closeMailTransporter,
   sleep,
   getEmailDelayMs,
+  getRateLimitBackoffMs,
+  isRateLimitError,
 } from "@/libs/mailer";
 import { mapEmpleadoRow, nombreCompletoEmpleado } from "@/libs/empleado_mapper";
 import { ENLACE_CAP_CORREO } from "@/libs/notificar_jefes_auditorias";
@@ -283,6 +285,9 @@ export async function* iterarEnvioCorreosAsignacion({
       } catch (err) {
         omitidos += 1;
         errores.push(`${empId}: ${err.message || "Error al enviar correo"}`);
+        if (isRateLimitError(err)) {
+          await sleep(getRateLimitBackoffMs());
+        }
       }
 
       yield {
