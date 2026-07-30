@@ -537,23 +537,7 @@ function SeguimientoAuditorias() {
                               {r.emp_id}
                             </Typography>
                           </TableCell>
-                          <TableCell>
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                              <span>{r.fecha_programada || "—"}</span>
-                              {vencida && (
-                                <Chip
-                                  size="small"
-                                  label="Vencida"
-                                  sx={{
-                                    height: 20,
-                                    fontWeight: 800,
-                                    bgcolor: COLOR_VENCIDA,
-                                    color: "#fff",
-                                  }}
-                                />
-                              )}
-                            </Box>
-                          </TableCell>
+                          <TableCell>{r.fecha_programada || "—"}</TableCell>
                           <TableCell>{chipEstado(r.estado)}</TableCell>
                           <TableCell>
                             <Chip

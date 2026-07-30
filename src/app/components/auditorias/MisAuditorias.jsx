@@ -265,23 +265,7 @@ function MisAuditorias() {
                             router.push(`/dashboard/auditorias/${r.id_auditoria}`)
                           }
                         >
-                          <TableCell>
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                              <span>{r.fecha_programada}</span>
-                              {vencida && (
-                                <Chip
-                                  size="small"
-                                  label="Vencida"
-                                  sx={{
-                                    height: 20,
-                                    fontWeight: 800,
-                                    bgcolor: COLOR_VENCIDA,
-                                    color: "#fff",
-                                  }}
-                                />
-                              )}
-                            </Box>
-                          </TableCell>
+                          <TableCell>{r.fecha_programada}</TableCell>
                           <TableCell>{r.area_nombre}</TableCell>
                           <TableCell>{r.sub_area_nombre}</TableCell>
                           <TableCell>

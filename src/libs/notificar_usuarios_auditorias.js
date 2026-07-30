@@ -4,6 +4,8 @@ import {
   isValidEmail,
   sendMailMessageWithRetry,
   createMailTransporter,
+  warmMailTransporter,
+  closeMailTransporter,
   sleep,
   getEmailDelayMs,
 } from "@/libs/mailer";
@@ -111,6 +113,26 @@ export async function listarAsignacionesCorreoPeriodo(periodo_mes) {
   return [...porUsuario.values()];
 }
 
+async function buscarEmpleadosPorIds(empIds) {
+  const ids = [...new Set(empIds.map((id) => String(id).trim()).filter(Boolean))];
+  if (!ids.length) return new Map();
+  try {
+    const placeholders = ids.map(() => "?").join(", ");
+    const [rows] = await empleados.query(
+      `SELECT * FROM del_empleados WHERE CAST(emp_id AS CHAR) IN (${placeholders})`,
+      ids,
+    );
+    const map = new Map();
+    for (const row of rows) {
+      const emp = mapEmpleadoRow(row);
+      map.set(String(emp.emp_id), emp);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
 async function buscarEmpleado(empId) {
   const id = String(empId ?? "").trim();
   if (!id) return null;
@@ -165,6 +187,7 @@ export async function notificarAsignacionUsuario({
   fechaProgramada,
   asignacion,
   transporter,
+  empleadoCache,
 }) {
   const empId = String(asignacion?.emp_id ?? "").trim();
   const auditorias = asignacion?.auditorias || [];
@@ -172,7 +195,8 @@ export async function notificarAsignacionUsuario({
     return { enviado: false, error: "Asignación inválida" };
   }
 
-  const emp = await buscarEmpleado(empId);
+  const emp =
+    empleadoCache?.get(empId) ?? (await buscarEmpleado(empId));
   const correo = String(emp?.emp_correo ?? "").trim();
   const nombre =
     nombreCompletoEmpleado(emp) ||
@@ -201,6 +225,81 @@ export async function notificarAsignacionUsuario({
 }
 
 /**
+ * Envía correos uno a uno y emite progreso (para streaming al cliente).
+ */
+export async function* iterarEnvioCorreosAsignacion({
+  periodo,
+  fechaProgramada,
+  asignaciones,
+}) {
+  const lista = (asignaciones || []).filter(
+    (a) => String(a?.emp_id ?? "").trim() && (a?.auditorias || []).length,
+  );
+  const total = lista.length;
+
+  if (!total) {
+    yield {
+      enviados: 0,
+      omitidos: 0,
+      procesados: 0,
+      total: 0,
+      terminado: true,
+      errores: [],
+    };
+    return;
+  }
+
+  const empleadosMap = await buscarEmpleadosPorIds(lista.map((a) => a.emp_id));
+  const transporter = createMailTransporter({ pooled: true });
+  const delayMs = getEmailDelayMs();
+  let enviados = 0;
+  let omitidos = 0;
+  const errores = [];
+
+  try {
+    await warmMailTransporter(transporter);
+
+    for (let i = 0; i < lista.length; i += 1) {
+      const item = lista[i];
+      const empId = String(item.emp_id);
+
+      try {
+        if (i > 0 && delayMs > 0) {
+          await sleep(delayMs);
+        }
+        const resultado = await notificarAsignacionUsuario({
+          periodo,
+          fechaProgramada,
+          asignacion: item,
+          transporter,
+          empleadoCache: empleadosMap,
+        });
+        if (resultado.enviado) {
+          enviados += 1;
+        } else {
+          omitidos += 1;
+          if (resultado.error) errores.push(resultado.error);
+        }
+      } catch (err) {
+        omitidos += 1;
+        errores.push(`${empId}: ${err.message || "Error al enviar correo"}`);
+      }
+
+      yield {
+        enviados,
+        omitidos,
+        procesados: i + 1,
+        total,
+        terminado: i === lista.length - 1,
+        errores: [...errores],
+      };
+    }
+  } finally {
+    closeMailTransporter(transporter);
+  }
+}
+
+/**
  * Un correo por usuario con todas las auditorías recién asignadas en la generación.
  * @param {{ periodo: string, fechaProgramada: string, asignaciones: array }} params
  */
@@ -209,46 +308,17 @@ export async function notificarUsuariosAuditoriasAsignadas({
   fechaProgramada,
   asignaciones,
 }) {
-  if (!asignaciones?.length) {
-    return { correos_enviados: 0, correos_omitidos: 0, errores: [] };
+  let resultado = { correos_enviados: 0, correos_omitidos: 0, errores: [] };
+  for await (const evt of iterarEnvioCorreosAsignacion({
+    periodo,
+    fechaProgramada,
+    asignaciones,
+  })) {
+    resultado = {
+      correos_enviados: evt.enviados,
+      correos_omitidos: evt.omitidos,
+      errores: evt.errores,
+    };
   }
-
-  let correos_enviados = 0;
-  let correos_omitidos = 0;
-  const errores = [];
-  const transporter = createMailTransporter();
-  const delayMs = getEmailDelayMs();
-  let enviadosEnLote = 0;
-
-  for (const item of asignaciones) {
-    const empId = String(item.emp_id ?? "").trim();
-    const auditorias = item.auditorias || [];
-    if (!empId || !auditorias.length) continue;
-
-    try {
-      if (enviadosEnLote > 0 && delayMs > 0) {
-        await sleep(delayMs);
-      }
-      const resultado = await notificarAsignacionUsuario({
-        periodo,
-        fechaProgramada,
-        asignacion: item,
-        transporter,
-      });
-      if (resultado.enviado) {
-        correos_enviados += 1;
-        enviadosEnLote += 1;
-      } else {
-        correos_omitidos += 1;
-        if (resultado.error) errores.push(resultado.error);
-      }
-    } catch (err) {
-      correos_omitidos += 1;
-      errores.push(
-        `${empId}: ${err.message || "Error al enviar correo"}`,
-      );
-    }
-  }
-
-  return { correos_enviados, correos_omitidos, errores };
+  return resultado;
 }

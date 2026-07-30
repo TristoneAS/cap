@@ -77,39 +77,68 @@ function GenerarAuditorias() {
 
     let correos_enviados = 0;
     let correos_omitidos = 0;
-    const errores = [];
+    let errores = [];
 
-    for (let i = 0; i < lista.length; i += 1) {
-      const item = lista[i];
-      try {
-        const res = await fetch("/api/auditorias/notificar-asignaciones/uno", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            periodo_mes: periodoMes,
-            emp_id: item.emp_id,
-          }),
-        });
-        const data = await res.json();
-        if (res.ok && data.success) {
-          correos_enviados += 1;
-        } else {
-          correos_omitidos += 1;
-          errores.push(data.error || `Error con ${item.emp_id}`);
-        }
-      } catch {
-        correos_omitidos += 1;
-        errores.push(`Error de conexión con ${item.emp_id}`);
+    try {
+      const res = await fetch("/api/auditorias/notificar-asignaciones/progreso", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          periodo_mes: periodoMes,
+          asignaciones: lista,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setCorreoProgress(emptyCorreoProgress);
+        return {
+          correos_enviados: 0,
+          correos_omitidos: total,
+          errores: [data.error || "Error al enviar correos"],
+        };
       }
 
-      setCorreoProgress({
-        open: true,
-        enviados: correos_enviados,
-        total,
-        procesados: i + 1,
-        terminado: false,
-        errores: [...errores],
-      });
+      const reader = res.body?.getReader();
+      if (!reader) {
+        throw new Error("No se pudo leer el progreso de envío");
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lineas = buffer.split("\n");
+        buffer = lineas.pop() || "";
+
+        for (const linea of lineas) {
+          if (!linea.trim()) continue;
+          const evt = JSON.parse(linea);
+          correos_enviados = evt.enviados ?? correos_enviados;
+          correos_omitidos = evt.omitidos ?? correos_omitidos;
+          errores = evt.errores || errores;
+
+          setCorreoProgress({
+            open: true,
+            enviados: correos_enviados,
+            total: evt.total ?? total,
+            procesados: evt.procesados ?? 0,
+            terminado: Boolean(evt.terminado),
+            errores: [...errores],
+          });
+        }
+      }
+    } catch {
+      setCorreoProgress(emptyCorreoProgress);
+      return {
+        correos_enviados: 0,
+        correos_omitidos: total,
+        errores: ["Error de conexión al enviar correos"],
+      };
     }
 
     setCorreoProgress({

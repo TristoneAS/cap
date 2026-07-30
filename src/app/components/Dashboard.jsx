@@ -58,11 +58,14 @@ import {
   periodoActualParts,
 } from "@/libs/periodo_ui";
 import {
+  PAGE_MAX_WIDTH,
   tableHeadCellSx,
   tableHeadRowSx,
   tablePaperSx,
 } from "@/libs/table_ui";
 import { exportVistaMagicaExcel } from "@/libs/export_vista_magica_excel";
+
+const DASHBOARD_VIEWPORT_OFFSET = "88px"; // Toolbar (56) + padding main arriba/abajo (32)
 
 function StatCard({ icon: Icon, label, value, color }) {
   return (
@@ -799,9 +802,7 @@ function calcEficienciaList(list) {
 function Dashboard() {
   const router = useRouter();
   const actual = periodoActualParts();
-  const rightColRef = React.useRef(null);
   const magicoGridRef = React.useRef(null);
-  const [rightColHeight, setRightColHeight] = useState(null);
   const [stats, setStats] = useState({
     areas: 0,
     auditorias: 0,
@@ -1164,25 +1165,6 @@ function Dashboard() {
     }
   }, [panoramaSubAreas.length, anio, mes, loadingMagico]);
 
-  useEffect(() => {
-    if (loading) return undefined;
-    const el = rightColRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return undefined;
-    const ro = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect?.height;
-      if (h != null && h > 0) setRightColHeight(Math.round(h));
-    });
-    ro.observe(el);
-    setRightColHeight(Math.round(el.getBoundingClientRect().height));
-    return () => ro.disconnect();
-  }, [
-    loading,
-    ncItems,
-    ncTotal,
-    eficienciaStats.pct,
-    eficienciaStats.sumTotal,
-  ]);
-
   const onClickAvance = useCallback(
     (entry) => {
       if (!entry) return;
@@ -1245,19 +1227,40 @@ function Dashboard() {
 
   return (
     <DashboardShell selectedItemId="inicio">
-      <Box sx={{ maxWidth: 1200, mx: "auto" }}>
+      <Box
+        sx={{
+          maxWidth: PAGE_MAX_WIDTH,
+          mx: "auto",
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          height: { md: `calc(100vh - ${DASHBOARD_VIEWPORT_OFFSET})` },
+          maxHeight: { md: `calc(100vh - ${DASHBOARD_VIEWPORT_OFFSET})` },
+          overflow: { md: "hidden" },
+          minHeight: 0,
+        }}
+      >
         {loading ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
             <CircularProgress sx={{ color: BRAND.primary }} />
           </Box>
         ) : (
-          <>
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              flex: 1,
+              minHeight: 0,
+              overflow: { md: "hidden" },
+              gap: 0.75,
+            }}
+          >
             <Box
               sx={{
                 display: "grid",
                 gridTemplateColumns: { xs: "1fr", sm: "repeat(3, 1fr)" },
-                gap: 1,
-                mb: 1,
+                gap: 0.75,
+                flexShrink: 0,
               }}
             >
               <StatCard
@@ -1283,13 +1286,13 @@ function Dashboard() {
             <Paper
               sx={{
                 p: 1,
-                mb: 1,
                 borderRadius: 1,
                 border: `1px solid ${BRAND.border}`,
                 display: "flex",
                 flexWrap: "wrap",
                 gap: 1,
                 alignItems: "center",
+                flexShrink: 0,
               }}
             >
               <Typography
@@ -1399,30 +1402,28 @@ function Dashboard() {
               sx={{
                 display: "grid",
                 gridTemplateColumns: { xs: "1fr", md: "1.15fr 0.85fr" },
-                gap: 1,
-                alignItems: "start",
-                mb: 1,
-                // Encaja stats+filtros+gráficas en viewport ~100% zoom
-                maxHeight: { md: "calc(100vh - 150px)" },
+                gap: 0.75,
+                alignItems: "stretch",
+                flex: 1,
+                minHeight: 0,
+                overflow: "hidden",
               }}
             >
               <ChartSection
                 sx={{
                   mb: 0,
-                  height: {
-                    xs: "auto",
-                    md: rightColHeight ? `${rightColHeight}px` : "auto",
-                  },
-                  width: "100%",
+                  height: "100%",
+                  minHeight: { xs: 280, md: 0 },
+                  display: "flex",
+                  flexDirection: "column",
                   overflow: "hidden",
                 }}
                 bodySx={{
-                  flex: "1 1 auto",
+                  flex: 1,
+                  minHeight: 0,
                   display: "flex",
                   flexDirection: "column",
-                  minHeight: 0,
-                  overflowY: "auto",
-                  overflowX: "hidden",
+                  overflow: "hidden",
                 }}
                 title={
                   <Box
@@ -1481,63 +1482,80 @@ function Dashboard() {
                 }
               >
                 {avanceVista.length === 0 ? (
-                  <Box sx={{ py: 4, textAlign: "center", color: BRAND.muted }}>
+                  <Box
+                    sx={{
+                      flex: 1,
+                      minHeight: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: BRAND.muted,
+                      textAlign: "center",
+                      px: 2,
+                    }}
+                  >
                     No hay auditorías para graficar
                   </Box>
                 ) : (
                   <Box
                     sx={{
-                      borderRadius: 1,
-                      border: `1px solid ${BRAND.border}`,
-                      px: 1,
-                      py: 0.75,
                       flex: 1,
-                      minHeight: 200,
-                      display: "flex",
-                      flexDirection: "column",
+                      minHeight: 0,
+                      overflowY: "auto",
+                      overflowX: "hidden",
+                      pr: 0.5,
                     }}
                   >
-                    <Typography
+                    <Box
                       sx={{
-                        fontWeight: 800,
-                        color: BRAND.ink,
-                        fontSize: "0.8rem",
-                        mb: 0.5,
-                        flexShrink: 0,
+                        borderRadius: 1,
+                        border: `1px solid ${BRAND.border}`,
+                        px: 1,
+                        py: 0.75,
                       }}
                     >
-                      {drillArea ? "Por sub área" : "Por área"}
-                    </Typography>
-                    <HorizontalPctChart
-                      data={avanceVista}
-                      dataKey="avance"
-                      tooltipLabel="Avance"
-                      onBarClick={onClickAvance}
-                      yWidth={110}
-                      showXAxis
-                      fillContainer
-                      rowKey="id"
-                      selectedId={
-                        drillSubArea
-                          ? String(drillSubArea.id_sub_area)
-                          : drillArea
-                            ? String(drillArea.id_area)
-                            : null
-                      }
-                      getFill={(entry) => colorBarra(entry.avance)}
-                    />
+                      <Typography
+                        sx={{
+                          fontWeight: 800,
+                          color: BRAND.ink,
+                          fontSize: "0.8rem",
+                          mb: 0.5,
+                        }}
+                      >
+                        {drillArea ? "Por sub área" : "Por área"}
+                      </Typography>
+                      <HorizontalPctChart
+                        data={avanceVista}
+                        dataKey="avance"
+                        tooltipLabel="Avance"
+                        onBarClick={onClickAvance}
+                        yWidth={148}
+                        showXAxis
+                        fillContainer={false}
+                        rowKey="id"
+                        selectedId={
+                          drillSubArea
+                            ? String(drillSubArea.id_sub_area)
+                            : drillArea
+                              ? String(drillArea.id_area)
+                              : null
+                        }
+                        getFill={(entry) => colorBarra(entry.avance)}
+                      />
+                    </Box>
                   </Box>
                 )}
               </ChartSection>
 
               <Box
-                ref={rightColRef}
                 sx={{
                   display: "flex",
                   flexDirection: "column",
                   gap: 1,
                   minWidth: 0,
-                  maxHeight: { md: "100%" },
+                  minHeight: 0,
+                  height: "100%",
+                  overflow: "hidden",
                 }}
               >
                 <ChartSection
@@ -1639,7 +1657,7 @@ function Dashboard() {
                 </ChartSection>
               </Box>
             </Box>
-          </>
+          </Box>
         )}
 
         <Dialog

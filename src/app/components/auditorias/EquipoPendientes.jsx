@@ -339,37 +339,13 @@ function EquipoPendientes() {
                                     />
                                   </TableCell>
                                   <TableCell>{aud.tipo_nombre}</TableCell>
-                                  <TableCell>
-                                    <Box
-                                      sx={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: 0.75,
-                                      }}
-                                    >
-                                      <span
-                                        style={{
-                                          color: vencida
-                                            ? COLOR_VENCIDA
-                                            : undefined,
-                                          fontWeight: vencida ? 700 : undefined,
-                                        }}
-                                      >
-                                        {aud.fecha_programada || "—"}
-                                      </span>
-                                      {vencida && (
-                                        <Chip
-                                          size="small"
-                                          label="Vencida"
-                                          sx={{
-                                            height: 20,
-                                            fontWeight: 800,
-                                            bgcolor: COLOR_VENCIDA,
-                                            color: "#fff",
-                                          }}
-                                        />
-                                      )}
-                                    </Box>
+                                  <TableCell
+                                    sx={{
+                                      color: vencida ? COLOR_VENCIDA : undefined,
+                                      fontWeight: vencida ? 700 : undefined,
+                                    }}
+                                  >
+                                    {aud.fecha_programada || "—"}
                                   </TableCell>
                                   <TableCell>{chipEstado(aud.estado)}</TableCell>
                                   <TableCell align="right">

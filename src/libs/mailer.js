@@ -9,10 +9,15 @@ export function sleep(ms) {
   });
 }
 
-/** Pausa entre correos (SMTP interno suele limitar ráfagas). */
+/** Pausa entre correos solo si el SMTP lo exige (EMAIL_DELAY_MS). Por defecto 0. */
 export function getEmailDelayMs() {
-  const n = Number(process.env.EMAIL_DELAY_MS || 2500);
-  return Number.isFinite(n) && n >= 0 ? n : 2500;
+  const n = Number(process.env.EMAIL_DELAY_MS ?? 0);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+export function useSmtpPool() {
+  const raw = String(process.env.EMAIL_POOL ?? "true").toLowerCase();
+  return raw !== "false" && raw !== "0" && raw !== "no";
 }
 
 export function getSmtpConfig() {
@@ -43,13 +48,15 @@ export function getSmtpConfig() {
   };
 }
 
-export function createMailTransporter() {
+export function createMailTransporter(opts = {}) {
   const cfg = getSmtpConfig();
   if (!cfg.configured) {
     throw new Error(
       "SMTP no configurado. Defina EMAIL_HOST, EMAIL_USER y EMAIL_PASSWORD (o SMTP_*) en el entorno del servidor.",
     );
   }
+
+  const pooled = opts.pooled !== false && useSmtpPool();
 
   return nodemailer.createTransport({
     host: cfg.host,
@@ -58,7 +65,30 @@ export function createMailTransporter() {
     auth: { user: cfg.user, pass: cfg.pass },
     tls: { rejectUnauthorized: cfg.tlsRejectUnauthorized },
     ...(cfg.domain ? { name: cfg.domain } : {}),
+    connectionTimeout: 15_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 30_000,
+    ...(pooled
+      ? {
+          pool: true,
+          maxConnections: 1,
+          maxMessages: 500,
+        }
+      : {}),
   });
+}
+
+/** Abre la conexión SMTP una vez antes de un lote de envíos. */
+export async function warmMailTransporter(transporter) {
+  if (!transporter || typeof transporter.verify !== "function") return;
+  await transporter.verify();
+}
+
+/** Cierra el pool SMTP tras un lote. */
+export function closeMailTransporter(transporter) {
+  if (transporter && typeof transporter.close === "function") {
+    transporter.close();
+  }
 }
 
 function isRateLimitError(err) {
