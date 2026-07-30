@@ -29,7 +29,6 @@ import {
   Speed,
   ReportProblem,
   ArrowBack,
-  AutoAwesome,
   BarChart as BarChartIcon,
   Close,
   FileDownload,
@@ -1684,7 +1683,7 @@ function Dashboard() {
               borderBottom: `1px solid ${BRAND.border}`,
             }}
           >
-            <AutoAwesome sx={{ color: BRAND.primary }} />
+            <BarChartIcon sx={{ color: BRAND.primary }} />
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography
                 sx={{ fontWeight: 800, color: BRAND.ink, lineHeight: 1.2 }}
