@@ -10,6 +10,7 @@ import { calcularPorcentajeCumplimiento } from "@/libs/auditoria_score";
 const AUDITORIA_SELECT = `
   SELECT aud.id_auditoria, aud.id_area, aud.id_sub_area, aud.id_tipo_auditoria,
          aud.emp_id, aud.emp_nombre, aud.periodo_mes, aud.turno, aud.estado, aud.fecha_programada,
+         aud.comentario,
          a.nombre AS area_nombre, sa.nombre AS sub_area_nombre,
          t.nombre AS tipo_nombre
   FROM auditorias aud
@@ -85,7 +86,7 @@ export async function GET(request, { params }) {
       }));
     }
 
-    const horarioTurno = puedeAuditarEnHorario(aud.turno);
+    const horarioTurno = puedeAuditarEnHorario(aud.turno, new Date(), aud.area_nombre);
     const horario = isAdmin
       ? { ok: true, motivo: null }
       : horarioTurno;
@@ -110,7 +111,7 @@ export async function GET(request, { params }) {
       horario: {
         permitido: horario.ok,
         motivo: horario.motivo || null,
-        descripcion: descripcionHorarioTurno(aud.turno),
+        descripcion: descripcionHorarioTurno(aud.turno, aud.area_nombre),
       },
     });
   } catch (error) {

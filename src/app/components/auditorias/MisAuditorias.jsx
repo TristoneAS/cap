@@ -114,7 +114,7 @@ function MisAuditorias() {
   const rowsOrdenadas = useMemo(() => {
     const score = (r) => {
       if (r.estado === "completada") return 2;
-      if (puedeAuditarEnHorario(r.turno, ahora).ok) return 0;
+      if (puedeAuditarEnHorario(r.turno, ahora, r.area_nombre).ok) return 0;
       return 1;
     };
     return [...rows].sort((a, b) => score(a) - score(b));
@@ -124,7 +124,7 @@ function MisAuditorias() {
     () =>
       rows.filter(
         (r) =>
-          r.estado !== "completada" && puedeAuditarEnHorario(r.turno, ahora).ok,
+          r.estado !== "completada" && puedeAuditarEnHorario(r.turno, ahora, r.area_nombre).ok,
       ).length,
     [rows, ahora],
   );
@@ -244,7 +244,7 @@ function MisAuditorias() {
                     rowsOrdenadas.map((r) => {
                       const vencida = esAuditoriaVencida(r);
                       const cerrada = r.estado === "completada";
-                      const enHorario = puedeAuditarEnHorario(r.turno, ahora).ok;
+                      const enHorario = puedeAuditarEnHorario(r.turno, ahora, r.area_nombre).ok;
                       const bloqueadaPorTurno = !cerrada && !enHorario;
 
                       return (

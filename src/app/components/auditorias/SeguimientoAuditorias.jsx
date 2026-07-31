@@ -263,6 +263,14 @@ function SeguimientoAuditorias() {
                     sx={{ mt: 1, fontWeight: 800, bgcolor: BRAND.primary, color: "#fff" }}
                   />
                 )}
+                {aud.comentario ? (
+                  <Typography
+                    variant="body2"
+                    sx={{ mt: 1.5, color: BRAND.ink, whiteSpace: "pre-wrap" }}
+                  >
+                    <strong>Comentario:</strong> {aud.comentario}
+                  </Typography>
+                ) : null}
               </Paper>
 
               <Paper sx={tablePaperSx}>

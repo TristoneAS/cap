@@ -8,6 +8,7 @@ export async function PUT(request, { params }) {
     const body = await request.json();
     const empId = String(body.emp_id ?? "").trim();
     const respuestas = Array.isArray(body.respuestas) ? body.respuestas : [];
+    const comentarioAuditoria = String(body.comentario ?? "").trim() || null;
     const isAdmin =
       body.is_admin === true ||
       body.is_admin === "true" ||
@@ -17,7 +18,10 @@ export async function PUT(request, { params }) {
     if (!respuestas.length) return jsonError("No hay respuestas para guardar", 400);
 
     const [auditorias] = await capDb.query(
-      "SELECT id_auditoria, emp_id, estado, turno FROM auditorias WHERE id_auditoria = ?",
+      `SELECT aud.id_auditoria, aud.emp_id, aud.estado, aud.turno, a.nombre AS area_nombre
+       FROM auditorias aud
+       INNER JOIN areas a ON a.id_area = aud.id_area
+       WHERE aud.id_auditoria = ?`,
       [idAuditoria],
     );
     if (!auditorias.length) return jsonError("Auditoría no encontrada", 404);
@@ -36,7 +40,7 @@ export async function PUT(request, { params }) {
     }
 
     if (!isAdmin) {
-      const horario = puedeAuditarEnHorario(aud.turno);
+      const horario = puedeAuditarEnHorario(aud.turno, new Date(), aud.area_nombre);
       if (!horario.ok) {
         return jsonError(horario.motivo, 403);
       }
@@ -142,8 +146,9 @@ export async function PUT(request, { params }) {
           ? "vencida"
           : "en_progreso";
 
-    await capDb.query("UPDATE auditorias SET estado = ? WHERE id_auditoria = ?", [
+    await capDb.query("UPDATE auditorias SET estado = ?, comentario = ? WHERE id_auditoria = ?", [
       nuevoEstado,
+      comentarioAuditoria,
       idAuditoria,
     ]);
 

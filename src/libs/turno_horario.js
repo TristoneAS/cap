@@ -6,10 +6,46 @@ function toMinutes(h, m) {
   return h * 60 + m;
 }
 
-const TURNO_A_INICIO = toMinutes(6, 0); // 06:00
-const TURNO_A_FIN = toMinutes(15, 30); // 15:30
-const TURNO_B_INICIO = toMinutes(15, 30); // 15:30
-const TURNO_B_FIN = toMinutes(0, 30); // 00:30 (cruza medianoche)
+const HORARIO_DEFAULT = {
+  aInicio: toMinutes(6, 0),
+  aFin: toMinutes(15, 30),
+  bInicio: toMinutes(15, 30),
+  bFin: toMinutes(0, 30),
+  descA: "Turno A: 06:00 – 15:30 (lunes a viernes)",
+  descB: "Turno B: 15:30 – 00:30 (lunes a viernes)",
+  motivoA:
+    "El turno A solo se puede auditar de lunes a viernes, de 06:00 a 15:30.",
+  motivoAFuera: "Fuera de horario del turno A (06:00 – 15:30, lunes a viernes).",
+  motivoB:
+    "Fuera de horario del turno B (15:30 – 00:30, lunes a viernes).",
+};
+
+const HORARIO_EXTRUSION = {
+  aInicio: toMinutes(6, 0),
+  aFin: toMinutes(18, 0),
+  bInicio: toMinutes(18, 0),
+  bFin: toMinutes(6, 0),
+  descA: "Turno A: 06:00 – 18:00 (lunes a viernes)",
+  descB: "Turno B: 18:00 – 06:00 (lunes a viernes)",
+  motivoA:
+    "El turno A solo se puede auditar de lunes a viernes, de 06:00 a 18:00.",
+  motivoAFuera: "Fuera de horario del turno A (06:00 – 18:00, lunes a viernes).",
+  motivoB:
+    "Fuera de horario del turno B (18:00 – 06:00, lunes a viernes).",
+};
+
+/** Áreas cuyo nombre contiene "Extrusion" / "Extrusión" (p. ej. Extrusion - DEL, Extrusion - DELX). */
+export function esAreaExtrusion(areaNombre) {
+  const nombre = String(areaNombre || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return nombre.includes("extrusion");
+}
+
+function getConfigHorario(areaNombre) {
+  return esAreaExtrusion(areaNombre) ? HORARIO_EXTRUSION : HORARIO_DEFAULT;
+}
 
 function getPartsMexico(date = new Date()) {
   const fmt = new Intl.DateTimeFormat("en-US", {
@@ -31,92 +67,116 @@ function getPartsMexico(date = new Date()) {
 }
 
 function esDiaHabil(weekday) {
-  return weekday >= 1 && weekday <= 5; // lun–vie
+  return weekday >= 1 && weekday <= 5;
 }
 
-/**
- * Turno A: lun–vie 06:00–15:30
- * Turno B: lun–vie 15:30–24:00 y mar–sáb 00:00–00:30
- *   (el tramo de medianoche es continuación del turno B del día hábil anterior;
- *    viernes 15:30 puede extenderse hasta sábado 00:30)
- */
-export function puedeAuditarEnHorario(turno, date = new Date()) {
+function turnoActivoEnConfig(turno, date, cfg) {
   const t = String(turno || "").toUpperCase();
   const { weekday, hour, minute } = getPartsMexico(date);
   const mins = toMinutes(hour, minute);
 
   if (t === "A") {
     if (!esDiaHabil(weekday)) {
-      return {
-        ok: false,
-        motivo:
-          "El turno A solo se puede auditar de lunes a viernes, de 06:00 a 15:30.",
-      };
+      return { ok: false, motivo: cfg.motivoA };
     }
-    if (mins >= TURNO_A_INICIO && mins < TURNO_A_FIN) {
+    if (mins >= cfg.aInicio && mins < cfg.aFin) {
       return { ok: true };
     }
-    return {
-      ok: false,
-      motivo: "Fuera de horario del turno A (06:00 – 15:30, lunes a viernes).",
-    };
+    return { ok: false, motivo: cfg.motivoAFuera };
   }
 
   if (t === "B") {
-    // Tarde/noche: lun–vie desde 15:30 hasta medianoche
-    if (esDiaHabil(weekday) && mins >= TURNO_B_INICIO) {
+    if (esDiaHabil(weekday) && mins >= cfg.bInicio) {
       return { ok: true };
     }
-    // Justo después de medianoche: mar–sáb 00:00–00:30 (continuación del día hábil anterior)
-    if (weekday >= 2 && weekday <= 6 && mins < TURNO_B_FIN) {
+    if (weekday >= 2 && weekday <= 6 && mins < cfg.bFin) {
       return { ok: true };
     }
-    return {
-      ok: false,
-      motivo:
-        "Fuera de horario del turno B (15:30 – 00:30, lunes a viernes).",
-    };
+    return { ok: false, motivo: cfg.motivoB };
   }
 
   return { ok: false, motivo: "Turno no válido" };
 }
 
-export function descripcionHorarioTurno(turno) {
+/**
+ * Turno A/B según horario del área.
+ * Extrusión: A 06:00–18:00, B 18:00–06:00.
+ * Resto: A 06:00–15:30, B 15:30–00:30.
+ */
+export function puedeAuditarEnHorario(turno, date = new Date(), areaNombre = null) {
+  return turnoActivoEnConfig(turno, date, getConfigHorario(areaNombre));
+}
+
+export function descripcionHorarioTurno(turno, areaNombre = null) {
   const t = String(turno || "").toUpperCase();
-  if (t === "A") return "Turno A: 06:00 – 15:30 (lunes a viernes)";
-  if (t === "B") return "Turno B: 15:30 – 00:30 (lunes a viernes)";
+  const cfg = getConfigHorario(areaNombre);
+  if (t === "A") return cfg.descA;
+  if (t === "B") return cfg.descB;
   return "Turno no definido";
 }
 
-/** Turno vigente ahora en planta, o null si no hay ventana de auditoría. */
-export function turnoActualAhora(date = new Date()) {
-  if (puedeAuditarEnHorario("A", date).ok) return "A";
-  if (puedeAuditarEnHorario("B", date).ok) return "B";
+/** Turno vigente ahora para un área, o null si no hay ventana de auditoría. */
+export function turnoActualAhora(date = new Date(), areaNombre = null) {
+  if (puedeAuditarEnHorario("A", date, areaNombre).ok) return "A";
+  if (puedeAuditarEnHorario("B", date, areaNombre).ok) return "B";
   return null;
 }
 
 export function mensajeTurnoActual(date = new Date()) {
-  const turno = turnoActualAhora(date);
-  if (turno === "A") {
+  const turnoGeneral = turnoActualAhora(date);
+  const turnoExtrusion = turnoActualAhora(date, "Extrusion");
+
+  if (turnoGeneral === turnoExtrusion) {
+    if (turnoGeneral === "A") {
+      return {
+        turno: "A",
+        titulo: "Ahora es turno A",
+        detalle:
+          "Extrusión: turno A 06:00–18:00. Otras áreas: turno A 06:00–15:30. Solo auditorías de turno A disponibles ahora.",
+      };
+    }
+    if (turnoGeneral === "B") {
+      return {
+        turno: "B",
+        titulo: "Ahora es turno B",
+        detalle:
+          "Extrusión: turno B 18:00–06:00. Otras áreas: turno B 15:30–00:30. Solo auditorías de turno B disponibles ahora.",
+      };
+    }
+  }
+
+  if (turnoGeneral && turnoExtrusion && turnoGeneral !== turnoExtrusion) {
     return {
-      turno,
-      titulo: "Ahora es turno A",
-      detalle:
-        "Solo puedes ejecutar auditorías de turno A (06:00 – 15:30). Las de turno B quedan bloqueadas hasta las 15:30.",
+      turno: null,
+      titulo: "Turno vigente según área",
+      detalle: `Extrusión: turno ${turnoExtrusion} (${turnoExtrusion === "A" ? "06:00–18:00" : "18:00–06:00"}). Otras áreas: turno ${turnoGeneral} (${turnoGeneral === "A" ? "06:00–15:30" : "15:30–00:30"}). Revise cada auditoría según su área.`,
     };
   }
-  if (turno === "B") {
+
+  if (turnoExtrusion && !turnoGeneral) {
     return {
-      turno,
-      titulo: "Ahora es turno B",
+      turno: turnoExtrusion,
+      titulo: `Ahora es turno ${turnoExtrusion} (Extrusión)`,
       detalle:
-        "Solo puedes ejecutar auditorías de turno B (15:30 – 00:30). Las de turno A quedan bloqueadas hasta mañana 06:00.",
+        "Solo áreas Extrusión tienen ventana de auditoría ahora (A 06:00–18:00 · B 18:00–06:00). Otras áreas están fuera de horario.",
     };
   }
+
+  if (turnoGeneral && !turnoExtrusion) {
+    return {
+      turno: turnoGeneral,
+      titulo: `Ahora es turno ${turnoGeneral}`,
+      detalle:
+        "Otras áreas: " +
+        (turnoGeneral === "A" ? "turno A 06:00–15:30" : "turno B 15:30–00:30") +
+        ". Extrusión usa horario distinto (A 06:00–18:00 · B 18:00–06:00).",
+    };
+  }
+
   return {
     turno: null,
     titulo: "Fuera de horario de auditoría",
     detalle:
-      "Ninguna auditoría se puede ejecutar ahora. Turno A: 06:00–15:30 · Turno B: 15:30–00:30 (lun–vie, hora México).",
+      "Extrusión — Turno A: 06:00–18:00 · Turno B: 18:00–06:00. Otras áreas — Turno A: 06:00–15:30 · Turno B: 15:30–00:30 (lun–vie, hora México).",
   };
 }

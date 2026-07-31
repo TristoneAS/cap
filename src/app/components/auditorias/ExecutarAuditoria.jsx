@@ -95,6 +95,7 @@ function ExecutarAuditoria({ idAuditoria }) {
     descripcion: "",
   });
   const [porcentaje, setPorcentaje] = useState(null);
+  const [comentario, setComentario] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -120,6 +121,7 @@ function ExecutarAuditoria({ idAuditoria }) {
       }
 
       setAuditoria(audData.data.auditoria);
+      setComentario(audData.data.auditoria?.comentario || "");
       setPorcentaje(
         audData.data.porcentaje != null ? audData.data.porcentaje : null,
       );
@@ -197,6 +199,7 @@ function ExecutarAuditoria({ idAuditoria }) {
         body: JSON.stringify({
           emp_id: empId,
           is_admin: adminMode,
+          comentario,
           respuestas: payload,
         }),
       });
@@ -534,6 +537,30 @@ function ExecutarAuditoria({ idAuditoria }) {
                 </TableBody>
               </Table>
             </TableContainer>
+          </Paper>
+        )}
+
+        {preguntas.length > 0 && (
+          <Paper
+            sx={{
+              p: 2,
+              mt: 2,
+              mb: 0,
+              borderRadius: 1,
+              border: `1px solid ${BRAND.border}`,
+            }}
+          >
+            <TextField
+              fullWidth
+              multiline
+              minRows={2}
+              maxRows={6}
+              label="Comentario de la auditoría (opcional)"
+              placeholder="Observaciones generales sobre esta auditoría"
+              value={comentario}
+              onChange={(e) => setComentario(e.target.value)}
+              disabled={soloLectura}
+            />
           </Paper>
         )}
 
