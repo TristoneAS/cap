@@ -24,6 +24,10 @@ const emptyCorreoProgress = {
   procesados: 0,
   terminado: false,
   errores: [],
+  fallidos: [],
+  session: null,
+  reenviandoId: null,
+  reenviandoTodos: false,
 };
 
 function GenerarAuditorias() {
@@ -59,13 +63,8 @@ function GenerarAuditorias() {
     cargarEstado();
   }, [cargarEstado]);
 
-  const enviarCorreosConProgreso = async (asignaciones, periodoMes) => {
-    const lista = asignaciones || [];
-    const total = lista.length;
-
-    if (!total) {
-      return { correos_enviados: 0, correos_omitidos: 0, errores: [] };
-    }
+  const enviarCorreosConProgreso = async (url, payload, totalFallback, session) => {
+    const total = totalFallback || payload?.asignaciones?.length || payload?.numeros?.length || 100;
 
     setCorreoProgress({
       open: true,
@@ -75,29 +74,41 @@ function GenerarAuditorias() {
       procesados: 0,
       terminado: false,
       errores: [],
+      fallidos: [],
+      session: session || null,
+      reenviandoId: null,
+      reenviandoTodos: false,
     });
 
     let correos_enviados = 0;
     let correos_omitidos = 0;
     let errores = [];
+    let fallidos = [];
 
     try {
-      const res = await fetch("/api/auditorias/notificar-asignaciones/progreso", {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          periodo_mes: periodoMes,
-          asignaciones: lista,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setCorreoProgress(emptyCorreoProgress);
+        const msg = data.error || "Error al enviar correos";
+        setCorreoProgress((prev) => ({
+          ...prev,
+          open: true,
+          terminado: true,
+          omitidos: total,
+          procesados: total,
+          errores: [msg],
+          fallidos: [],
+        }));
         return {
           correos_enviados: 0,
           correos_omitidos: total,
-          errores: [data.error || "Error al enviar correos"],
+          errores: [msg],
+          fallidos: [],
         };
       }
 
@@ -123,8 +134,10 @@ function GenerarAuditorias() {
           correos_enviados = evt.enviados ?? correos_enviados;
           correos_omitidos = evt.omitidos ?? correos_omitidos;
           errores = evt.errores || errores;
+          fallidos = evt.fallidos || fallidos;
 
-          setCorreoProgress({
+          setCorreoProgress((prev) => ({
+            ...prev,
             open: true,
             enviados: correos_enviados,
             omitidos: correos_omitidos,
@@ -132,19 +145,28 @@ function GenerarAuditorias() {
             procesados: evt.procesados ?? 0,
             terminado: Boolean(evt.terminado),
             errores: [...errores],
-          });
+            fallidos: [...fallidos],
+            session: session || prev.session,
+          }));
         }
       }
     } catch {
-      setCorreoProgress(emptyCorreoProgress);
+      setCorreoProgress((prev) => ({
+        ...prev,
+        open: true,
+        terminado: true,
+        errores: ["Error de conexión al enviar correos"],
+      }));
       return {
         correos_enviados: 0,
         correos_omitidos: total,
         errores: ["Error de conexión al enviar correos"],
+        fallidos: [],
       };
     }
 
-    setCorreoProgress({
+    setCorreoProgress((prev) => ({
+      ...prev,
       open: true,
       enviados: correos_enviados,
       omitidos: correos_omitidos,
@@ -152,12 +174,117 @@ function GenerarAuditorias() {
       procesados: total,
       terminado: true,
       errores,
+      fallidos,
+      session: session || prev.session,
+    }));
+
+    if (fallidos.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      setCorreoProgress(emptyCorreoProgress);
+    }
+
+    return { correos_enviados, correos_omitidos, errores, fallidos };
+  };
+
+  const enviarAsignacionesConProgreso = async (asignaciones, periodoMes) => {
+    const lista = asignaciones || [];
+    const total = lista.length;
+
+    if (!total) {
+      return { correos_enviados: 0, correos_omitidos: 0, errores: [], fallidos: [] };
+    }
+
+    return enviarCorreosConProgreso(
+      "/api/auditorias/notificar-asignaciones/progreso",
+      { periodo_mes: periodoMes, asignaciones: lista },
+      total,
+      { tipo: "asignacion", periodo_mes: periodoMes },
+    );
+  };
+
+  const reenviarFallidoAsignacion = async (fallido, periodoMes) => {
+    const res = await fetch("/api/auditorias/notificar-asignaciones/uno", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        periodo_mes: periodoMes,
+        emp_id: fallido.emp_id,
+      }),
     });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "No se pudo reenviar");
+    }
+  };
 
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+  const handleReenviarFallido = async (fallido) => {
+    const session = correoProgress.session;
+    if (!fallido || !session) return;
+
+    setCorreoProgress((prev) => ({ ...prev, reenviandoId: fallido.id }));
+
+    try {
+      await reenviarFallidoAsignacion(fallido, session.periodo_mes || periodo);
+
+      setCorreoProgress((prev) => {
+        const restantes = prev.fallidos.filter((f) => f.id !== fallido.id);
+        return {
+          ...prev,
+          enviados: prev.enviados + 1,
+          omitidos: Math.max(0, prev.omitidos - 1),
+          fallidos: restantes,
+          errores: restantes.map((f) => `${f.label}: ${f.error}`),
+          reenviandoId: null,
+        };
+      });
+    } catch (err) {
+      setCorreoProgress((prev) => ({
+        ...prev,
+        reenviandoId: null,
+        fallidos: prev.fallidos.map((f) =>
+          f.id === fallido.id
+            ? { ...f, error: err.message || "Error al reenviar" }
+            : f,
+        ),
+      }));
+    }
+  };
+
+  const handleReenviarTodosFallidos = async () => {
+    const { fallidos, session } = correoProgress;
+    if (!fallidos.length || !session) return;
+
+    setCorreoProgress((prev) => ({ ...prev, reenviandoTodos: true }));
+
+    let ok = 0;
+    const pendientes = [];
+
+    for (const fallido of fallidos) {
+      setCorreoProgress((prev) => ({ ...prev, reenviandoId: fallido.id }));
+      try {
+        await reenviarFallidoAsignacion(fallido, session.periodo_mes || periodo);
+        ok += 1;
+      } catch (err) {
+        pendientes.push({
+          ...fallido,
+          error: err.message || "Error al reenviar",
+        });
+      }
+    }
+
+    setCorreoProgress((prev) => ({
+      ...prev,
+      enviados: prev.enviados + ok,
+      omitidos: pendientes.length,
+      fallidos: pendientes,
+      errores: pendientes.map((f) => `${f.label}: ${f.error}`),
+      reenviandoId: null,
+      reenviandoTodos: false,
+    }));
+  };
+
+  const handleCerrarCorreoModal = () => {
     setCorreoProgress(emptyCorreoProgress);
-
-    return { correos_enviados, correos_omitidos, errores };
   };
 
   const handleGenerar = async () => {
@@ -202,7 +329,7 @@ function GenerarAuditorias() {
 
       const asignaciones = generacion.asignaciones_correo || [];
       if (asignaciones.length > 0) {
-        correos = await enviarCorreosConProgreso(asignaciones, periodo);
+        correos = await enviarAsignacionesConProgreso(asignaciones, periodo);
       }
 
       setResult({
@@ -234,7 +361,7 @@ function GenerarAuditorias() {
       }
 
       const asignaciones = listData.data?.asignaciones || [];
-      const correos = await enviarCorreosConProgreso(asignaciones, periodo);
+      const correos = await enviarAsignacionesConProgreso(asignaciones, periodo);
 
       setResult({
         tipo: "correos",
@@ -253,7 +380,12 @@ function GenerarAuditorias() {
 
   return (
     <DashboardShell selectedItemId="generar-auditorias">
-      <CorreosProgresoModal {...correoProgress} />
+      <CorreosProgresoModal
+        {...correoProgress}
+        onReenviarUno={handleReenviarFallido}
+        onReenviarTodos={handleReenviarTodosFallidos}
+        onCerrar={handleCerrarCorreoModal}
+      />
 
       <Box sx={{ maxWidth: 640, mx: "auto" }}>
         <Typography variant="h5" sx={{ fontWeight: 800, color: BRAND.ink, mb: 1 }}>

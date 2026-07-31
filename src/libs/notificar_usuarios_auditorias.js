@@ -6,10 +6,9 @@ import {
   createMailTransporter,
   warmMailTransporter,
   closeMailTransporter,
-  sleep,
-  getEmailDelayMs,
-  getRateLimitBackoffMs,
-  isRateLimitError,
+  getEmailBatchSize,
+  getEmailBatchPauseMs,
+  pauseEntreLotesSiAplica,
 } from "@/libs/mailer";
 import { mapEmpleadoRow, nombreCompletoEmpleado } from "@/libs/empleado_mapper";
 import { ENLACE_CAP_CORREO } from "@/libs/notificar_jefes_auditorias";
@@ -159,6 +158,7 @@ export async function notificarUsuarioAuditoriasAsignadas({
   fechaProgramada,
   auditorias,
   transporter,
+  maxRetries,
 }) {
   const enlace = ENLACE_CAP_CORREO;
   const subject = `CAP · Auditorías asignadas — periodo ${periodo}`;
@@ -177,7 +177,11 @@ export async function notificarUsuarioAuditoriasAsignadas({
     enlace,
   });
 
-  await sendMailMessageWithRetry({ to, subject, text, html }, transporter);
+  await sendMailMessageWithRetry(
+    { to, subject, text, html },
+    transporter,
+    maxRetries != null ? { maxRetries } : undefined,
+  );
   return { enviado: true, correo: to };
 }
 
@@ -190,6 +194,7 @@ export async function notificarAsignacionUsuario({
   asignacion,
   transporter,
   empleadoCache,
+  maxRetries,
 }) {
   const empId = String(asignacion?.emp_id ?? "").trim();
   const auditorias = asignacion?.auditorias || [];
@@ -221,9 +226,26 @@ export async function notificarAsignacionUsuario({
     fechaProgramada,
     auditorias,
     transporter: mailer,
+    maxRetries,
   });
 
   return { enviado: true, correo, emp_id: empId, nombre };
+}
+
+function erroresDesdeFallidos(fallidos) {
+  return (fallidos || []).map((f) => `${f.label}: ${f.error}`);
+}
+
+function fallidoAsignacion(item, error, nombre) {
+  const empId = String(item.emp_id);
+  return {
+    id: empId,
+    label: nombre ? `${nombre} (${empId})` : empId,
+    error,
+    tipo: "asignacion",
+    emp_id: empId,
+    asignacion: item,
+  };
 }
 
 /**
@@ -247,16 +269,18 @@ export async function* iterarEnvioCorreosAsignacion({
       total: 0,
       terminado: true,
       errores: [],
+      fallidos: [],
     };
     return;
   }
 
   const empleadosMap = await buscarEmpleadosPorIds(lista.map((a) => a.emp_id));
   const transporter = createMailTransporter({ pooled: true });
-  const delayMs = getEmailDelayMs();
+  const batchSize = getEmailBatchSize();
+  const batchPauseMs = getEmailBatchPauseMs();
   let enviados = 0;
   let omitidos = 0;
-  const errores = [];
+  const fallidos = [];
 
   try {
     await warmMailTransporter(transporter);
@@ -264,30 +288,40 @@ export async function* iterarEnvioCorreosAsignacion({
     for (let i = 0; i < lista.length; i += 1) {
       const item = lista[i];
       const empId = String(item.emp_id);
+      const emp = empleadosMap.get(empId);
+      const nombre =
+        nombreCompletoEmpleado(emp) || item.nombre || emp?.emp_nombre || empId;
 
       try {
-        if (i > 0 && delayMs > 0) {
-          await sleep(delayMs);
-        }
         const resultado = await notificarAsignacionUsuario({
           periodo,
           fechaProgramada,
           asignacion: item,
           transporter,
           empleadoCache: empleadosMap,
+          maxRetries: 1,
         });
         if (resultado.enviado) {
           enviados += 1;
         } else {
           omitidos += 1;
-          if (resultado.error) errores.push(resultado.error);
+          fallidos.push(
+            fallidoAsignacion(
+              item,
+              resultado.error || "No se pudo enviar",
+              nombre,
+            ),
+          );
         }
       } catch (err) {
         omitidos += 1;
-        errores.push(`${empId}: ${err.message || "Error al enviar correo"}`);
-        if (isRateLimitError(err)) {
-          await sleep(getRateLimitBackoffMs());
-        }
+        fallidos.push(
+          fallidoAsignacion(
+            item,
+            err.message || "Error al enviar correo",
+            nombre,
+          ),
+        );
       }
 
       yield {
@@ -296,8 +330,11 @@ export async function* iterarEnvioCorreosAsignacion({
         procesados: i + 1,
         total,
         terminado: i === lista.length - 1,
-        errores: [...errores],
+        errores: erroresDesdeFallidos(fallidos),
+        fallidos: [...fallidos],
       };
+
+      await pauseEntreLotesSiAplica(i, lista.length, batchSize, batchPauseMs);
     }
   } finally {
     closeMailTransporter(transporter);
@@ -323,6 +360,7 @@ export async function notificarUsuariosAuditoriasAsignadas({
       correos_enviados: evt.enviados,
       correos_omitidos: evt.omitidos,
       errores: evt.errores,
+      fallidos: evt.fallidos || [],
     };
   }
   return resultado;

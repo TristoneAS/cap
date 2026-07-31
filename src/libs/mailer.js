@@ -15,6 +15,26 @@ export function getEmailDelayMs() {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+/** Límite SMTP: correos por lote antes de pausar (default 5/min). 0 = solo EMAIL_DELAY_MS. */
+export function getEmailBatchSize() {
+  const n = Number(process.env.EMAIL_BATCH_SIZE ?? 5);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/** Pausa entre lotes en ms (default 60 s). */
+export function getEmailBatchPauseMs() {
+  const n = Number(process.env.EMAIL_BATCH_PAUSE_MS ?? 60_000);
+  return Number.isFinite(n) && n >= 0 ? n : 60_000;
+}
+
+/** Pausa tras completar un lote (no tras el último correo). */
+export async function pauseEntreLotesSiAplica(indice, total, batchSize, batchPauseMs) {
+  if (batchSize <= 0 || batchPauseMs <= 0) return;
+  if ((indice + 1) % batchSize === 0 && indice + 1 < total) {
+    await sleep(batchPauseMs);
+  }
+}
+
 export function useSmtpPool() {
   const raw = String(process.env.EMAIL_POOL ?? "true").toLowerCase();
   return raw !== "false" && raw !== "0" && raw !== "no";
@@ -25,16 +45,13 @@ export function getSmtpConfig() {
   const port = Number(process.env.EMAIL_PORT || process.env.SMTP_PORT || 587);
   const user = process.env.EMAIL_USER || process.env.SMTP_USER;
   const pass = process.env.EMAIL_PASSWORD || process.env.SMTP_PASS;
-  const from =
-    process.env.EMAIL_FROM || process.env.SMTP_FROM || user;
+  const from = process.env.EMAIL_FROM || process.env.SMTP_FROM || user;
   const domain = process.env.EMAIL_DOMAIN;
   const tlsRejectRaw = (
     process.env.EMAIL_TLS_REJECT_UNAUTHORIZED ?? ""
   ).toLowerCase();
   const tlsRejectUnauthorized =
-    tlsRejectRaw !== "false" &&
-    tlsRejectRaw !== "0" &&
-    tlsRejectRaw !== "no";
+    tlsRejectRaw !== "false" && tlsRejectRaw !== "0" && tlsRejectRaw !== "no";
 
   return {
     host,
@@ -71,7 +88,7 @@ export function createMailTransporter(opts = {}) {
     ...(pooled
       ? {
           pool: true,
-          maxConnections: 1,
+          maxConnections: 10,
           maxMessages: 500,
         }
       : {}),
@@ -127,9 +144,15 @@ export async function sendMailMessage(opts, transporter) {
 
 /**
  * Reintenta si el SMTP responde límite de envío (421 / rate limit).
+ * @param {{ maxRetries?: number }} [retryOpts] — maxRetries: 1 en lotes (fallar rápido).
  */
-export async function sendMailMessageWithRetry(opts, transporter) {
-  const maxRetries = Number(process.env.EMAIL_MAX_RETRIES || 3);
+export async function sendMailMessageWithRetry(
+  opts,
+  transporter,
+  retryOpts = {},
+) {
+  const maxRetries =
+    retryOpts.maxRetries ?? Number(process.env.EMAIL_MAX_RETRIES || 3);
   const delayMs = getEmailDelayMs();
   const backoffMs = getRateLimitBackoffMs();
 
@@ -139,7 +162,10 @@ export async function sendMailMessageWithRetry(opts, transporter) {
       return;
     } catch (err) {
       if (intento < maxRetries - 1 && isRateLimitError(err)) {
-        const wait = Math.max(delayMs * (intento + 2), backoffMs * (intento + 1));
+        const wait = Math.max(
+          delayMs * (intento + 2),
+          backoffMs * (intento + 1),
+        );
         await sleep(wait);
         continue;
       }
