@@ -5,6 +5,7 @@ import {
   descripcionHorarioTurno,
   puedeAuditarEnHorario,
 } from "@/libs/turno_horario";
+import { loadTurnosByCodigo } from "@/libs/turnos_db";
 import { calcularPorcentajeCumplimiento } from "@/libs/auditoria_score";
 
 const AUDITORIA_SELECT = `
@@ -86,7 +87,8 @@ export async function GET(request, { params }) {
       }));
     }
 
-    const horarioTurno = puedeAuditarEnHorario(aud.turno, new Date(), aud.area_nombre);
+    const turnosByCodigo = await loadTurnosByCodigo();
+    const horarioTurno = puedeAuditarEnHorario(aud.turno, new Date(), turnosByCodigo);
     const horario = isAdmin
       ? { ok: true, motivo: null }
       : horarioTurno;
@@ -111,7 +113,7 @@ export async function GET(request, { params }) {
       horario: {
         permitido: horario.ok,
         motivo: horario.motivo || null,
-        descripcion: descripcionHorarioTurno(aud.turno, aud.area_nombre),
+        descripcion: descripcionHorarioTurno(aud.turno, turnosByCodigo),
       },
     });
   } catch (error) {

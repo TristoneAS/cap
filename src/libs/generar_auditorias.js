@@ -2,8 +2,8 @@ import { capDb } from "@/libs/cap_db";
 import { fechaVencimientoPeriodo, periodoMesPlanta } from "@/libs/auditoria_fechas";
 import { notificarUsuariosAuditoriasAsignadas } from "@/libs/notificar_usuarios_auditorias";
 import { getSmtpConfig } from "@/libs/mailer";
+import { getTurnosCodigosPorSubArea } from "@/libs/turnos_db";
 
-const TURNOS = ["A", "B"];
 
 function shuffle(arr) {
   const a = [...arr];
@@ -244,10 +244,27 @@ export async function generarAuditoriasMes(
     };
   }
 
+  const turnosPorSubArea = await getTurnosCodigosPorSubArea();
+  const combosSinTurnos = combosConAuditor.filter(
+    (c) => !(turnosPorSubArea.get(Number(c.id_sub_area)) || []).length,
+  );
+  if (combosSinTurnos.length === combosConAuditor.length) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        "Ninguna sub área tiene turnos asignados. Configure turnos en Sub áreas antes de generar auditorías.",
+    };
+  }
+
   const shuffledCombos = shuffle(combosConAuditor);
   const slots = [];
   for (const combo of shuffledCombos) {
-    for (const turno of TURNOS) {
+    const turnos = turnosPorSubArea.get(Number(combo.id_sub_area)) || [];
+    if (!turnos.length) {
+      continue;
+    }
+    for (const turno of turnos) {
       slots.push({
         sub: {
           id_area: combo.id_area,
@@ -357,7 +374,7 @@ export async function generarAuditoriasMes(
     return {
       ok: false,
       status: 400,
-      error: `No se generó ninguna auditoría. Slots: ${slots.length}, sin auditor de nivel: ${sinAuditor}. Revise preguntas, tipos/usuarios y sus niveles.`,
+      error: `No se generó ninguna auditoría. Slots: ${slots.length}, sin auditor de nivel: ${sinAuditor}. Revise preguntas, turnos por sub área, tipos/usuarios y sus niveles.`,
       data: {
         periodo_mes: periodo,
         creadas,
@@ -396,6 +413,7 @@ export async function generarAuditoriasMes(
 
   await registrarGeneracionPeriodo(periodo, { creadas, omitidas, automatica });
 
+  const turnosUsados = [...new Set(slots.map((s) => s.turno))].sort();
   const data = {
     periodo_mes: periodo,
     creadas,
@@ -405,7 +423,7 @@ export async function generarAuditoriasMes(
     total_combos: combosConAuditor.length,
     total_combos_sin_auditor: combosSinAuditor,
     total_slots: slots.length,
-    turnos: TURNOS,
+    turnos: turnosUsados,
     correos_enviados: correos.correos_enviados,
     correos_omitidos: correos.correos_omitidos,
     errores_correo: correos.errores,
@@ -414,7 +432,7 @@ export async function generarAuditoriasMes(
     ya_generado: true,
   };
 
-  const message = `Se generaron ${creadas} auditorías (turnos A y B) para ${periodo}${
+  const message = `Se generaron ${creadas} auditorías (${turnosUsados.length ? `turnos ${turnosUsados.join(", ")}` : "sin turnos"}) para ${periodo}${
     omitidas ? `, ${omitidas} omitidas (ya existían)` : ""
   }${compartidas ? ` (${compartidas} compartidas por sobrar usuarios)` : ""}${
     sinAuditor ? ` (${sinAuditor} sin auditor del nivel requerido)` : ""

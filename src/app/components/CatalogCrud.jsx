@@ -64,6 +64,14 @@ function normalizeFieldValue(field, raw) {
     }
     return Number(raw);
   }
+  if (field.type === "time") {
+    if (raw === undefined || raw === null || raw === "") return "";
+    return String(raw).slice(0, 5);
+  }
+  if (field.type === "multiselect") {
+    if (!Array.isArray(raw)) return [];
+    return raw.map(String);
+  }
   if (field.type === "select") {
     if (raw === undefined || raw === null || raw === "") return "";
     return String(raw);
@@ -112,7 +120,10 @@ function CatalogCrud({
 
   const loadSelectOptions = useCallback(async () => {
     const selects = fields.filter(
-      (f) => f.type === "select" && f.optionsApi && !f.dependsOn,
+      (f) =>
+        (f.type === "select" || f.type === "multiselect") &&
+        f.optionsApi &&
+        !f.dependsOn,
     );
     const entries = await Promise.all(
       selects.map(async (f) => {
@@ -309,6 +320,17 @@ function CatalogCrud({
       const payload = { ...form };
       for (const f of fields) {
         if (f.type === "number") payload[f.name] = Number(payload[f.name] || 0);
+        if (f.type === "multiselect") {
+          const ids = (form[f.name] || []).map(Number).filter(Boolean);
+          if (f.required && !ids.length) {
+            setError(`Seleccione al menos un ${f.label.toLowerCase()}`);
+            return;
+          }
+          payload[f.name] = ids;
+        }
+        if (editId && f.createOnly) {
+          delete payload[f.name];
+        }
         if (f.type === "select") {
           const lockedByParent = isLockedByParentMulti(f, form, fields, multiEnabled);
           const useMulti = !editId && f.multiCreate && multiEnabled[f.name] && !lockedByParent;
@@ -443,6 +465,49 @@ function CatalogCrud({
             >
               {fields.map((f) => {
                 const fieldWrapSx = f.fullWidth ? { gridColumn: "1 / -1" } : undefined;
+                if (f.type === "multiselect") {
+                  const opts = f.optionsApi
+                    ? selectOptions[f.name] || []
+                    : f.options || [];
+                  const selectedMulti = (form[f.name] || [])
+                    .map(String)
+                    .map((id) => opts.find((o) => String(o[f.optionValue]) === id))
+                    .filter(Boolean);
+                  return (
+                    <Box key={f.name} sx={fieldWrapSx}>
+                      <Autocomplete
+                        multiple
+                        size="small"
+                        disableCloseOnSelect
+                        limitTags={3}
+                        options={opts}
+                        value={selectedMulti}
+                        getOptionLabel={(opt) => opt[f.optionLabel] || ""}
+                        isOptionEqualToValue={(a, b) =>
+                          String(a[f.optionValue]) === String(b[f.optionValue])
+                        }
+                        onChange={(_, value) => {
+                          setForm((prev) => ({
+                            ...prev,
+                            [f.name]: value.map((o) => String(o[f.optionValue])),
+                          }));
+                        }}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label={f.label}
+                            required={f.required}
+                            helperText={
+                              selectedMulti.length
+                                ? `${selectedMulti.length} seleccionado(s)`
+                                : f.helperText
+                            }
+                          />
+                        )}
+                      />
+                    </Box>
+                  );
+                }
                 if (f.type === "select") {
                   const parentFieldName = f.dependsOn?.parentField;
                   const parentFieldDef = parentFieldName
@@ -621,6 +686,22 @@ function CatalogCrud({
                     </Box>
                   );
                 }
+                if (f.type === "time") {
+                  return (
+                    <Box key={f.name} sx={fieldWrapSx}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        type="time"
+                        label={f.label}
+                        value={normalizeFieldValue(f, form[f.name])}
+                        onChange={(e) => handleChange(f.name, e.target.value)}
+                        required={f.required}
+                        slotProps={{ inputLabel: { shrink: true } }}
+                      />
+                    </Box>
+                  );
+                }
                 return (
                   <Box key={f.name} sx={fieldWrapSx}>
                   <TextField
@@ -631,6 +712,8 @@ function CatalogCrud({
                     value={normalizeFieldValue(f, form[f.name])}
                     onChange={(e) => handleChange(f.name, e.target.value)}
                     required={f.required}
+                    disabled={Boolean(editId && f.createOnly)}
+                    helperText={editId && f.createOnly ? "No editable" : undefined}
                   />
                   </Box>
                 );

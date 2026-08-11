@@ -1,6 +1,7 @@
 import { capDb } from "@/libs/cap_db";
 import { jsonError, jsonOk, parseId } from "@/libs/api_helpers";
 import { puedeAuditarEnHorario } from "@/libs/turno_horario";
+import { loadTurnosByCodigo } from "@/libs/turnos_db";
 
 export async function PUT(request, { params }) {
   try {
@@ -40,7 +41,8 @@ export async function PUT(request, { params }) {
     }
 
     if (!isAdmin) {
-      const horario = puedeAuditarEnHorario(aud.turno, new Date(), aud.area_nombre);
+      const turnosByCodigo = await loadTurnosByCodigo();
+      const horario = puedeAuditarEnHorario(aud.turno, new Date(), turnosByCodigo);
       if (!horario.ok) {
         return jsonError(horario.motivo, 403);
       }

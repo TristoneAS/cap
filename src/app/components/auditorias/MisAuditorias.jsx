@@ -37,6 +37,7 @@ import {
 import {
   mensajeTurnoActual,
   puedeAuditarEnHorario,
+  turnosByCodigoFromList,
 } from "@/libs/turno_horario";
 import {
   PAGE_MAX_WIDTH,
@@ -68,10 +69,25 @@ function MisAuditorias() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [ahora, setAhora] = useState(() => new Date());
+  const [turnosByCodigo, setTurnosByCodigo] = useState({});
 
   const anios = useMemo(() => aniosDisponibles(actual.anio), [actual.anio]);
   const filtrosActivos = mes !== "" || anio !== actual.anio;
-  const infoTurno = useMemo(() => mensajeTurnoActual(ahora), [ahora]);
+  const infoTurno = useMemo(
+    () => mensajeTurnoActual(ahora, turnosByCodigo),
+    [ahora, turnosByCodigo],
+  );
+
+  useEffect(() => {
+    fetch("/api/turnos")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.data) {
+          setTurnosByCodigo(turnosByCodigoFromList(data.data));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,19 +130,19 @@ function MisAuditorias() {
   const rowsOrdenadas = useMemo(() => {
     const score = (r) => {
       if (r.estado === "completada") return 2;
-      if (puedeAuditarEnHorario(r.turno, ahora, r.area_nombre).ok) return 0;
+      if (puedeAuditarEnHorario(r.turno, ahora, turnosByCodigo).ok) return 0;
       return 1;
     };
     return [...rows].sort((a, b) => score(a) - score(b));
-  }, [rows, ahora]);
+  }, [rows, ahora, turnosByCodigo]);
 
   const disponiblesAhora = useMemo(
     () =>
       rows.filter(
         (r) =>
-          r.estado !== "completada" && puedeAuditarEnHorario(r.turno, ahora, r.area_nombre).ok,
+          r.estado !== "completada" && puedeAuditarEnHorario(r.turno, ahora, turnosByCodigo).ok,
       ).length,
-    [rows, ahora],
+    [rows, ahora, turnosByCodigo],
   );
 
   return (
@@ -244,7 +260,7 @@ function MisAuditorias() {
                     rowsOrdenadas.map((r) => {
                       const vencida = esAuditoriaVencida(r);
                       const cerrada = r.estado === "completada";
-                      const enHorario = puedeAuditarEnHorario(r.turno, ahora, r.area_nombre).ok;
+                      const enHorario = puedeAuditarEnHorario(r.turno, ahora, turnosByCodigo).ok;
                       const bloqueadaPorTurno = !cerrada && !enHorario;
 
                       return (
