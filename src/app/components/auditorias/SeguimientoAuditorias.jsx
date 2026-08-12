@@ -18,8 +18,12 @@ import {
   TextField,
   Button,
   MenuItem,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
-import { Visibility, ArrowBack, FilterAltOff, EditNote } from "@mui/icons-material";
+import { Visibility, ArrowBack, FilterAltOff, EditNote, SwapHoriz } from "@mui/icons-material";
 import DashboardShell from "@/app/components/DashboardShell";
 import { isAdminClient } from "@/libs/dashboard_access";
 import { BRAND } from "@/libs/theme_palette";
@@ -82,6 +86,19 @@ function SeguimientoAuditorias() {
   const [selectedId, setSelectedId] = useState(null);
   const [detalle, setDetalle] = useState(null);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
+  const [reasignarRow, setReasignarRow] = useState(null);
+  const [reasignarForm, setReasignarForm] = useState({
+    id_area: "",
+    id_sub_area: "",
+    id_tipo_auditoria: "",
+    turno: "",
+  });
+  const [reasignarSubAreas, setReasignarSubAreas] = useState([]);
+  const [reasignarTipos, setReasignarTipos] = useState([]);
+  const [reasignarTurnos, setReasignarTurnos] = useState([]);
+  const [reasignarSaving, setReasignarSaving] = useState(false);
+  const [reasignarError, setReasignarError] = useState("");
+  const [reasignarSuccess, setReasignarSuccess] = useState("");
 
   const anios = useMemo(() => aniosDisponibles(actual.anio), [actual.anio]);
   const filtrosActivos =
@@ -198,6 +215,144 @@ function SeguimientoAuditorias() {
       return true;
     });
   }, [rows, filtroArea, filtroSubArea, filtroAuditor]);
+
+  const cerrarReasignar = () => {
+    setReasignarRow(null);
+    setReasignarForm({
+      id_area: "",
+      id_sub_area: "",
+      id_tipo_auditoria: "",
+      turno: "",
+    });
+    setReasignarSubAreas([]);
+    setReasignarTipos([]);
+    setReasignarTurnos([]);
+    setReasignarError("");
+  };
+
+  const abrirReasignar = (row) => {
+    setReasignarRow(row);
+    setReasignarForm({
+      id_area: "",
+      id_sub_area: "",
+      id_tipo_auditoria: "",
+      turno: "",
+    });
+    setReasignarSubAreas([]);
+    setReasignarTipos([]);
+    setReasignarTurnos([]);
+    setReasignarError("");
+    setReasignarSuccess("");
+  };
+
+  useEffect(() => {
+    if (!reasignarRow || !reasignarForm.id_area) {
+      setReasignarSubAreas([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/sub-areas?id_area=${encodeURIComponent(reasignarForm.id_area)}`,
+        );
+        const data = await res.json();
+        if (cancelled) return;
+        setReasignarSubAreas(res.ok && data.success ? data.data || [] : []);
+      } catch {
+        if (!cancelled) setReasignarSubAreas([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reasignarRow, reasignarForm.id_area]);
+
+  useEffect(() => {
+    if (!reasignarForm.id_area || !reasignarForm.id_sub_area) {
+      setReasignarTipos([]);
+      setReasignarTurnos([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams({
+          id_area: reasignarForm.id_area,
+          id_sub_area: reasignarForm.id_sub_area,
+        });
+        const res = await fetch(`/api/auditorias/tipos-por-alcance?${params.toString()}`);
+        const data = await res.json();
+        if (cancelled) return;
+        setReasignarTipos(res.ok && data.success ? data.data || [] : []);
+      } catch {
+        if (!cancelled) setReasignarTipos([]);
+      }
+    })();
+
+    const sub = reasignarSubAreas.find(
+      (sa) => String(sa.id_sub_area) === String(reasignarForm.id_sub_area),
+    );
+    setReasignarTurnos(sub?.turnos || []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    reasignarForm.id_area,
+    reasignarForm.id_sub_area,
+    reasignarSubAreas,
+  ]);
+
+  const guardarReasignacion = async () => {
+    if (!reasignarRow) return;
+    const { id_area, id_sub_area, id_tipo_auditoria, turno } = reasignarForm;
+    if (!id_area || !id_sub_area || !id_tipo_auditoria || !turno) {
+      setReasignarError("Complete área, sub área, tipo y turno");
+      return;
+    }
+
+    const msg =
+      `Se eliminará por completo la auditoría actual:\n` +
+      `${reasignarRow.area_nombre} · ${reasignarRow.sub_area_nombre} · Turno ${reasignarRow.turno}\n\n` +
+      `No contará en reportes del mes. Se creará la nueva asignación para ${reasignarRow.emp_nombre}.\n\n` +
+      `¿Continuar?`;
+
+    if (!confirm(msg)) return;
+
+    setReasignarSaving(true);
+    setReasignarError("");
+    try {
+      const res = await fetch(`/api/auditorias/${reasignarRow.id_auditoria}/reasignar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id_area: Number(id_area),
+          id_sub_area: Number(id_sub_area),
+          id_tipo_auditoria: Number(id_tipo_auditoria),
+          turno,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setReasignarError(data.error || "Error al reasignar");
+        return;
+      }
+      setReasignarSuccess(data.message || "Auditoría reasignada");
+      cerrarReasignar();
+      load();
+    } catch {
+      setReasignarError("Error de conexión al reasignar");
+    } finally {
+      setReasignarSaving(false);
+    }
+  };
+
+  const puedeReasignar = (r) =>
+    isAdmin &&
+    Number(r.respondidas || 0) === 0 &&
+    r.estado !== "completada" &&
+    r.estado !== "cancelada";
 
   if (selectedId) {
     const aud = detalle?.auditoria;
@@ -464,6 +619,11 @@ function SeguimientoAuditorias() {
             {error}
           </Alert>
         )}
+        {reasignarSuccess && (
+          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setReasignarSuccess("")}>
+            {reasignarSuccess}
+          </Alert>
+        )}
 
         <LeyendaAuditorias />
 
@@ -616,6 +776,22 @@ function SeguimientoAuditorias() {
                                     Auditar
                                   </Button>
                                 )}
+                              {puedeReasignar(r) && (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={<SwapHoriz />}
+                                  onClick={() => abrirReasignar(r)}
+                                  sx={{
+                                    textTransform: "none",
+                                    fontWeight: 700,
+                                    borderColor: BRAND.primary,
+                                    color: BRAND.primary,
+                                  }}
+                                >
+                                  Reasignar
+                                </Button>
+                              )}
                             </Box>
                           </TableCell>
                         </TableRow>
@@ -627,6 +803,143 @@ function SeguimientoAuditorias() {
             </TableContainer>
           )}
         </Paper>
+
+        <Dialog open={Boolean(reasignarRow)} onClose={cerrarReasignar} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ fontWeight: 800, color: BRAND.ink }}>
+            Reasignar auditoría
+          </DialogTitle>
+          <DialogContent>
+            {reasignarRow && (
+              <>
+                <Typography variant="body2" sx={{ color: BRAND.muted, mb: 2 }}>
+                  Auditor: <strong>{reasignarRow.emp_nombre}</strong> ({reasignarRow.emp_id})
+                  · Periodo {reasignarRow.periodo_mes}
+                </Typography>
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  La asignación actual se <strong>eliminará</strong> de la base de datos y dejará
+                  de contar en porcentajes y gráficas del mes. Solo permitido si no hay respuestas
+                  guardadas.
+                </Alert>
+                <Typography variant="caption" sx={{ color: BRAND.muted, display: "block", mb: 1.5 }}>
+                  Actual: {reasignarRow.area_nombre} · {reasignarRow.sub_area_nombre} · Turno{" "}
+                  {reasignarRow.turno} · {reasignarRow.tipo_nombre}
+                </Typography>
+                {reasignarError && (
+                  <Alert severity="error" sx={{ mb: 2 }}>
+                    {reasignarError}
+                  </Alert>
+                )}
+                <Box sx={{ display: "grid", gap: 1.5 }}>
+                  <TextField
+                    select
+                    size="small"
+                    label="Nueva área"
+                    value={reasignarForm.id_area}
+                    onChange={(e) =>
+                      setReasignarForm({
+                        id_area: e.target.value,
+                        id_sub_area: "",
+                        id_tipo_auditoria: "",
+                        turno: "",
+                      })
+                    }
+                  >
+                    {areas.map((a) => (
+                      <MenuItem key={a.id_area} value={String(a.id_area)}>
+                        {a.nombre}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="Nueva sub área"
+                    value={reasignarForm.id_sub_area}
+                    disabled={!reasignarForm.id_area}
+                    onChange={(e) =>
+                      setReasignarForm((prev) => ({
+                        ...prev,
+                        id_sub_area: e.target.value,
+                        id_tipo_auditoria: "",
+                        turno: "",
+                      }))
+                    }
+                  >
+                    {reasignarSubAreas.map((sa) => (
+                      <MenuItem key={sa.id_sub_area} value={String(sa.id_sub_area)}>
+                        {sa.nombre}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="Tipo de auditoría"
+                    value={reasignarForm.id_tipo_auditoria}
+                    disabled={!reasignarForm.id_sub_area}
+                    onChange={(e) =>
+                      setReasignarForm((prev) => ({
+                        ...prev,
+                        id_tipo_auditoria: e.target.value,
+                      }))
+                    }
+                  >
+                    {reasignarTipos.length === 0 ? (
+                      <MenuItem disabled value="">
+                        Sin tipos con preguntas para esta sub área
+                      </MenuItem>
+                    ) : (
+                      reasignarTipos.map((t) => (
+                        <MenuItem key={t.id_tipo_auditoria} value={String(t.id_tipo_auditoria)}>
+                          {t.nombre}
+                        </MenuItem>
+                      ))
+                    )}
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="Turno"
+                    value={reasignarForm.turno}
+                    disabled={!reasignarForm.id_sub_area}
+                    onChange={(e) =>
+                      setReasignarForm((prev) => ({ ...prev, turno: e.target.value }))
+                    }
+                  >
+                    {reasignarTurnos.length === 0 ? (
+                      <MenuItem disabled value="">
+                        Sin turnos configurados en la sub área
+                      </MenuItem>
+                    ) : (
+                      reasignarTurnos.map((t) => (
+                        <MenuItem key={t.id_turno} value={t.codigo}>
+                          {t.label || t.codigo}
+                        </MenuItem>
+                      ))
+                    )}
+                  </TextField>
+                </Box>
+              </>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={cerrarReasignar} sx={{ textTransform: "none" }}>
+              Cancelar
+            </Button>
+            <Button
+              variant="contained"
+              disabled={reasignarSaving}
+              onClick={guardarReasignacion}
+              sx={{
+                textTransform: "none",
+                fontWeight: 700,
+                bgcolor: BRAND.primary,
+              }}
+            >
+              {reasignarSaving ? "Guardando..." : "Reasignar y eliminar anterior"}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </DashboardShell>
   );
