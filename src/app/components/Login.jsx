@@ -80,76 +80,60 @@ function Login() {
       return;
     }
 
+    const username = user.user.trim();
+    const password = user.password;
+
     try {
       setLoading(true);
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_AUTH_SERVER_URL}/SYSTEMVDOCS/AUTHENTICATE`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username: user.user.trim(),
-            password: user.password,
-          }),
-        },
-      );
 
-      const data = await response.json();
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
 
-      if (response.ok && data.authorization !== "Unauthorized") {
-        try {
-          const empleadoResponse = await fetch(
-            `/api/empleados/by-alias/${user.user.trim()}`,
-          );
-          const empleadoData = await empleadoResponse.json();
-
-          if (empleadoResponse.ok && empleadoData.success) {
-            localStorage.setItem("infoUser", JSON.stringify(empleadoData.data));
-            setSnackbarMessage("Iniciando sesión en auditorías LPA");
-            setSnackbarSeverity("success");
-            setOpenSnackbar(true);
-            localStorage.setItem("user", JSON.stringify(data));
-            localStorage.setItem("isAuthenticated", "true");
-            const adminFlag =
-              data.isAdmin === true ||
-              data.isAdmin === "true" ||
-              data.isAdmin === 1;
-            localStorage.setItem("isAdmin", adminFlag ? "true" : "false");
-            localStorage.setItem("usuario", user.user.trim());
-            try {
-              const expiresAt = getSessionExpiresAt();
-              localStorage.setItem("sessionExpiresAt", expiresAt.toString());
-              setSessionCookieClient(expiresAt);
-            } catch (err) {
-              console.error("No se pudo crear la cookie de sesión:", err);
-            }
-            const dest = getPostLoginRedirect(
-              searchParams.get("redirect"),
-              adminFlag,
-            );
-            setTimeout(() => router.replace(dest), 300);
-          } else {
-            setSnackbarMessage("El alias del empleado no está registrado");
-            setLoading(false);
-            setSnackbarSeverity("error");
-            setOpenSnackbar(true);
-          }
-        } catch (error) {
-          console.error("Error al obtener información del empleado:", error);
-          setSnackbarMessage("El alias del empleado no está registrado");
-          setLoading(false);
-          setSnackbarSeverity("error");
-          setOpenSnackbar(true);
-        }
-      } else {
-        setSnackbarMessage(
-          "Error en autenticación: " +
-            (data.message || "Credenciales inválidas"),
-        );
-        setLoading(false);
-        setSnackbarSeverity("error");
-        setOpenSnackbar(true);
+      let data = {};
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
       }
+
+      if (response.ok && data.success === true && data.auth && data.empleado) {
+        setSnackbarMessage("Iniciando sesión en auditorías LPA");
+        setSnackbarSeverity("success");
+        setOpenSnackbar(true);
+        localStorage.setItem("infoUser", JSON.stringify(data.empleado));
+        localStorage.setItem("user", JSON.stringify(data.auth));
+        localStorage.setItem("isAuthenticated", "true");
+        const adminFlag =
+          data.auth.isAdmin === true ||
+          data.auth.isAdmin === "true" ||
+          data.auth.isAdmin === 1;
+        localStorage.setItem("isAdmin", adminFlag ? "true" : "false");
+        localStorage.setItem("usuario", username);
+        try {
+          const expiresAt = getSessionExpiresAt();
+          localStorage.setItem("sessionExpiresAt", expiresAt.toString());
+          setSessionCookieClient(expiresAt);
+        } catch (err) {
+          console.error("No se pudo crear la cookie de sesión:", err);
+        }
+        const dest = getPostLoginRedirect(
+          searchParams.get("redirect"),
+          adminFlag,
+        );
+        setTimeout(() => router.replace(dest), 300);
+        return;
+      }
+
+      setSnackbarMessage(
+        data.error ||
+          "Error en autenticación: Usuario o contraseña incorrectos",
+      );
+      setLoading(false);
+      setSnackbarSeverity("error");
+      setOpenSnackbar(true);
     } catch {
       setSnackbarMessage(
         "Error al conectar con el servidor, contacte a soporte",
