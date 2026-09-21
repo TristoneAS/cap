@@ -101,9 +101,19 @@ function ExecutarAuditoria({ idAuditoria }) {
     setLoading(true);
     setError("");
     try {
-      const audUrl = adminMode
-        ? `/api/auditorias/${idAuditoria}?is_admin=true`
-        : `/api/auditorias/${idAuditoria}`;
+      const params = new URLSearchParams();
+      if (adminMode) {
+        params.set("is_admin", "true");
+      } else {
+        const empId = getMiEmpId();
+        if (!empId) {
+          setError("No se pudo identificar su usuario. Vuelva a iniciar sesión.");
+          setLoading(false);
+          return;
+        }
+        params.set("emp_id", empId);
+      }
+      const audUrl = `/api/auditorias/${idAuditoria}?${params.toString()}`;
       const [audRes, accRes, ncRes, empRes] = await Promise.all([
         fetch(audUrl),
         fetch("/api/acciones"),
@@ -116,7 +126,11 @@ function ExecutarAuditoria({ idAuditoria }) {
       const empData = await empRes.json();
 
       if (!audRes.ok) {
-        setError(audData.error || "No se pudo cargar la auditoría");
+        const msg = audData.error || "No se pudo cargar la auditoría";
+        setError(msg);
+        if (audRes.status === 403 && !adminMode) {
+          setTimeout(() => router.replace("/dashboard/auditorias"), 1500);
+        }
         return;
       }
 
@@ -145,7 +159,7 @@ function ExecutarAuditoria({ idAuditoria }) {
     } finally {
       setLoading(false);
     }
-  }, [idAuditoria, adminMode]);
+  }, [idAuditoria, adminMode, router]);
 
   useEffect(() => {
     load();

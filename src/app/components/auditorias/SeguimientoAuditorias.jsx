@@ -175,7 +175,21 @@ function SeguimientoAuditorias() {
     setDetalle(null);
     setError("");
     try {
-      const res = await fetch(`/api/auditorias/${id}`);
+      const url = isAdmin
+        ? `/api/auditorias/${id}?is_admin=true`
+        : `/api/auditorias/${id}?emp_id=${encodeURIComponent(
+            (() => {
+              try {
+                const raw = localStorage.getItem("infoUser");
+                if (!raw) return "";
+                const u = JSON.parse(raw);
+                return u?.emp_id != null ? String(u.emp_id).trim() : "";
+              } catch {
+                return "";
+              }
+            })(),
+          )}`;
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Error al cargar detalle");

@@ -7,6 +7,10 @@ import {
 } from "@/libs/turno_horario";
 import { loadTurnosByCodigo } from "@/libs/turnos_db";
 import { calcularPorcentajeCumplimiento } from "@/libs/auditoria_score";
+import {
+  assertAuditoriaAccess,
+  parseIsAdminFlag,
+} from "@/libs/auditoria_access";
 
 const AUDITORIA_SELECT = `
   SELECT aud.id_auditoria, aud.id_area, aud.id_sub_area, aud.id_tipo_auditoria,
@@ -25,13 +29,17 @@ export async function GET(request, { params }) {
   try {
     const id = parseId(await params, "id");
     const { searchParams } = new URL(request.url);
-    const isAdmin =
-      searchParams.get("is_admin") === "true" ||
-      searchParams.get("is_admin") === "1";
+    const isAdmin = parseIsAdminFlag(searchParams);
+    const empId = String(searchParams.get("emp_id") ?? "").trim();
     const [auditorias] = await capDb.query(AUDITORIA_SELECT, [id]);
     if (!auditorias.length) return jsonError("Auditoría no encontrada", 404);
 
     const aud = auditorias[0];
+    const acceso = assertAuditoriaAccess(aud, { empId, isAdmin });
+    if (!acceso.ok) {
+      return jsonError(acceso.error, acceso.status);
+    }
+
     const cerrada = aud.estado === "completada" || aud.estado === "cancelada";
 
     const [respuestas] = await capDb.query(

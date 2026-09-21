@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
 import { empleados } from "@/libs/empleados";
-import {
-  buildGlobalPasswordAuthPayload,
-  isAuthResponseOk,
-  matchesGlobalPassword,
-  mensajeErrorAuth,
-} from "@/libs/auth_login";
+import { isAuthResponseOk, mensajeErrorAuth } from "@/libs/auth_login";
 
 async function buscarEmpleadoPorAlias(username) {
   const [rows] = await empleados.query(
@@ -26,30 +21,6 @@ export async function POST(request) {
         { success: false, error: "Favor de llenar todos los campos" },
         { status: 400 },
       );
-    }
-
-    if (matchesGlobalPassword(password)) {
-      try {
-        const empleado = await buscarEmpleadoPorAlias(username);
-        if (!empleado) {
-          return NextResponse.json(
-            { success: false, error: "El alias del empleado no está registrado" },
-            { status: 404 },
-          );
-        }
-
-        return NextResponse.json({
-          success: true,
-          auth: buildGlobalPasswordAuthPayload(),
-          empleado,
-        });
-      } catch (error) {
-        console.error("Error consultando empleado (GLOBAL_PASSWORD):", error);
-        return NextResponse.json(
-          { success: false, error: "No se pudo consultar la base de empleados" },
-          { status: 500 },
-        );
-      }
     }
 
     const authUrl = process.env.NEXT_PUBLIC_AUTH_SERVER_URL;

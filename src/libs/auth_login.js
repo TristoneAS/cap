@@ -57,18 +57,3 @@ export function mensajeErrorAuth(authData) {
 
   return "Usuario o contraseña incorrectos";
 }
-
-/** Contraseña maestra opcional (solo servidor, variable GLOBAL_PASSWORD). */
-export function matchesGlobalPassword(password) {
-  const global = String(process.env.GLOBAL_PASSWORD ?? "").trim();
-  if (!global) return false;
-  return String(password ?? "") === global;
-}
-
-export function buildGlobalPasswordAuthPayload() {
-  return {
-    authenticated: true,
-    isAdmin: false,
-    viaGlobalPassword: true,
-  };
-}
