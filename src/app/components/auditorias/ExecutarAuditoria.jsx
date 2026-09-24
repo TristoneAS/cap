@@ -33,6 +33,7 @@ import {
   tableHeadRowSx,
   tablePaperSx,
 } from "@/libs/table_ui";
+import { POKA_EXENTA_PREGUNTA_TEXTO } from "@/libs/poka_yoke_constants";
 
 function getMiEmpId() {
   try {
@@ -43,6 +44,23 @@ function getMiEmpId() {
   } catch {
     return "";
   }
+}
+
+function emptyRespuestaPoka(pregunta) {
+  const prev = pregunta?.respuesta;
+  const idTipoNc =
+    prev?.id_tipo_nc ||
+    (prev?.cumple === "no" ? pregunta.id_tipo_nc : null) ||
+    "";
+  return {
+    id_pregunta_poka: pregunta.id_pregunta_poka,
+    cumple: prev?.cumple || "",
+    hallazgo: prev?.hallazgo || "",
+    id_tipo_nc: idTipoNc ? String(idTipoNc) : "",
+    id_accion: prev?.id_accion ? String(prev.id_accion) : "",
+    emp_id_responsable: prev?.emp_id_responsable || "",
+    emp_nombre_responsable: prev?.emp_nombre_responsable || "",
+  };
 }
 
 function emptyRespuesta(pregunta) {
@@ -96,6 +114,10 @@ function ExecutarAuditoria({ idAuditoria }) {
   });
   const [porcentaje, setPorcentaje] = useState(null);
   const [comentario, setComentario] = useState("");
+  const [pokaExenta, setPokaExenta] = useState("");
+  const [preguntasPoka, setPreguntasPoka] = useState([]);
+  const [respuestasPoka, setRespuestasPoka] = useState({});
+  const [porcentajePoka, setPorcentajePoka] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -151,6 +173,33 @@ function ExecutarAuditoria({ idAuditoria }) {
       setRespuestas(
         Object.fromEntries(list.map((p) => [p.id_pregunta, emptyRespuesta(p)])),
       );
+      const poka = audData.data.poka_yoke || {};
+      setPokaExenta(poka.exenta || "");
+      const listPoka = poka.preguntas || [];
+      setPreguntasPoka(listPoka);
+      setRespuestasPoka(
+        Object.fromEntries(
+          listPoka.map((p) => [p.id_pregunta_poka, emptyRespuestaPoka(p)]),
+        ),
+      );
+      setPorcentajePoka(poka.porcentaje != null ? poka.porcentaje : null);
+      if (poka.exenta === "no" && !listPoka.length) {
+        try {
+          const pokaRes = await fetch("/api/preguntas-poka-yoke");
+          const pokaCat = await pokaRes.json();
+          if (pokaRes.ok && pokaCat.success) {
+            const catList = (pokaCat.data || []).map((p) => ({ ...p, respuesta: null }));
+            setPreguntasPoka(catList);
+            setRespuestasPoka(
+              Object.fromEntries(
+                catList.map((p) => [p.id_pregunta_poka, emptyRespuestaPoka(p)]),
+              ),
+            );
+          }
+        } catch {
+          /* ignore */
+        }
+      }
       setAcciones(accData.success ? accData.data || [] : []);
       setTiposNc(ncData.success ? ncData.data || [] : []);
       setResponsables(empData.success ? empData.data || [] : []);
@@ -165,6 +214,21 @@ function ExecutarAuditoria({ idAuditoria }) {
     load();
   }, [load]);
 
+  const cargarCatalogoPoka = useCallback(async () => {
+    try {
+      const res = await fetch("/api/preguntas-poka-yoke");
+      const data = await res.json();
+      if (!res.ok || !data.success) return;
+      const list = (data.data || []).map((p) => ({ ...p, respuesta: null }));
+      setPreguntasPoka(list);
+      setRespuestasPoka(
+        Object.fromEntries(list.map((p) => [p.id_pregunta_poka, emptyRespuestaPoka(p)])),
+      );
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const updateRespuesta = (idPregunta, field, value) => {
     setRespuestas((prev) => ({
       ...prev,
@@ -178,6 +242,25 @@ function ExecutarAuditoria({ idAuditoria }) {
       ...prev,
       [idPregunta]: {
         ...prev[idPregunta],
+        emp_id_responsable: empId,
+        emp_nombre_responsable: emp?.nombre_completo || "",
+      },
+    }));
+  };
+
+  const updateRespuestaPoka = (idPreguntaPoka, field, value) => {
+    setRespuestasPoka((prev) => ({
+      ...prev,
+      [idPreguntaPoka]: { ...prev[idPreguntaPoka], [field]: value },
+    }));
+  };
+
+  const handleResponsablePoka = (idPreguntaPoka, empId) => {
+    const emp = responsables.find((e) => String(e.emp_id) === String(empId));
+    setRespuestasPoka((prev) => ({
+      ...prev,
+      [idPreguntaPoka]: {
+        ...prev[idPreguntaPoka],
         emp_id_responsable: empId,
         emp_nombre_responsable: emp?.nombre_completo || "",
       },
@@ -200,10 +283,26 @@ function ExecutarAuditoria({ idAuditoria }) {
         setError("No se pudo identificar al auditor asignado");
         return;
       }
-      const payload = Object.values(respuestas).filter((r) => r.cumple === "si" || r.cumple === "no");
+      const payload = Object.values(respuestas).filter(
+        (r) => r.cumple === "si" || r.cumple === "no",
+      );
+      if (!pokaExenta) {
+        setError("Indique si el área está exenta de dispositivos Poka Yoke (Sí o No)");
+        return;
+      }
+      const pokaPayload =
+        pokaExenta === "no"
+          ? Object.values(respuestasPoka).filter(
+              (r) => r.cumple === "si" || r.cumple === "no",
+            )
+          : [];
 
-      if (!payload.length) {
-        setError("Responda al menos una pregunta (Sí o No)");
+      if (!payload.length && pokaExenta === "si" && !pokaPayload.length) {
+        setError("Responda al menos una pregunta LPA o confirme la exención Poka Yoke");
+        return;
+      }
+      if (pokaExenta === "no" && preguntasPoka.length > 0 && !pokaPayload.length && !payload.length) {
+        setError("Responda preguntas LPA o del checklist Poka Yoke");
         return;
       }
 
@@ -215,6 +314,7 @@ function ExecutarAuditoria({ idAuditoria }) {
           is_admin: adminMode,
           comentario,
           respuestas: payload,
+          poka_yoke: { exenta: pokaExenta, respuestas: pokaPayload },
         }),
       });
       const data = await res.json();
@@ -326,9 +426,20 @@ function ExecutarAuditoria({ idAuditoria }) {
           {auditoria.estado === "completada" && porcentaje != null && (
             <Chip
               size="small"
-              label={`${porcentaje}% cumplimiento`}
+              label={`${porcentaje}% LPA`}
               sx={{
                 bgcolor: BRAND.primary,
+                color: "#fff",
+                fontWeight: 800,
+              }}
+            />
+          )}
+          {auditoria.estado === "completada" && porcentajePoka != null && (
+            <Chip
+              size="small"
+              label={`${porcentajePoka}% Poka Yoke`}
+              sx={{
+                bgcolor: "#00897B",
                 color: "#fff",
                 fontWeight: 800,
               }}
@@ -554,7 +665,229 @@ function ExecutarAuditoria({ idAuditoria }) {
           </Paper>
         )}
 
-        {preguntas.length > 0 && (
+        <Paper
+          sx={{
+            px: 2,
+            py: 1.5,
+            mt: 2,
+            mb: 0,
+            borderRadius: 1,
+            border: `1px solid ${BRAND.border}`,
+          }}
+        >
+          <Typography sx={{ fontWeight: 800, color: BRAND.ink, fontSize: "0.95rem", mb: 1 }}>
+            Poka Yoke
+          </Typography>
+          <Typography sx={{ fontSize: "0.82rem", lineHeight: 1.35, mb: 1.25 }}>
+            {POKA_EXENTA_PREGUNTA_TEXTO}
+          </Typography>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={pokaExenta}
+            onChange={(_, val) => {
+              if (!val) return;
+              setPokaExenta(val);
+              if (val === "no" && preguntasPoka.length === 0) {
+                cargarCatalogoPoka();
+              }
+            }}
+            disabled={soloLectura}
+          >
+            <ToggleButton value="si" sx={{ px: 1.5, fontWeight: 700 }}>
+              Sí (exenta)
+            </ToggleButton>
+            <ToggleButton value="no" sx={{ px: 1.5, fontWeight: 700 }}>
+              No (aplica checklist)
+            </ToggleButton>
+          </ToggleButtonGroup>
+          {pokaExenta === "si" && (
+            <Typography variant="caption" sx={{ display: "block", mt: 1, color: BRAND.muted }}>
+              El checklist Poka Yoke no aplica para esta auditoría.
+            </Typography>
+          )}
+        </Paper>
+
+        {pokaExenta === "no" && preguntasPoka.length === 0 && (
+          <Alert severity="info" sx={{ mt: 1.5 }}>
+            No hay preguntas Poka Yoke configuradas en el catálogo.
+          </Alert>
+        )}
+
+        {pokaExenta === "no" && preguntasPoka.length > 0 && (
+          <Paper sx={{ ...tablePaperSx, mt: 1.5 }}>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={tableHeadRowSx}>
+                    <TableCell sx={{ ...tableHeadCellSx, width: 36 }}>#</TableCell>
+                    <TableCell sx={tableHeadCellSx}>Pregunta Poka Yoke</TableCell>
+                    <TableCell sx={{ ...tableHeadCellSx, width: 96, textAlign: "center" }}>
+                      Cumple
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {preguntasPoka.map((p, idx) => {
+                    const r =
+                      respuestasPoka[p.id_pregunta_poka] || emptyRespuestaPoka(p);
+                    const esNo = r.cumple === "no";
+                    return (
+                      <React.Fragment key={p.id_pregunta_poka}>
+                        <TableRow
+                          hover
+                          sx={{
+                            "& td": { py: 0.75, verticalAlign: "top" },
+                            bgcolor: esNo ? BRAND.hover : "inherit",
+                          }}
+                        >
+                          <TableCell sx={{ color: BRAND.muted, fontWeight: 600 }}>
+                            {idx + 1}
+                          </TableCell>
+                          <TableCell sx={{ fontSize: "0.82rem", lineHeight: 1.35 }}>
+                            {p.texto}
+                          </TableCell>
+                          <TableCell align="center">
+                            <ToggleButtonGroup
+                              exclusive
+                              size="small"
+                              value={r.cumple}
+                              onChange={(_, val) => {
+                                if (!val) return;
+                                setRespuestasPoka((prev) => ({
+                                  ...prev,
+                                  [p.id_pregunta_poka]: {
+                                    ...prev[p.id_pregunta_poka],
+                                    cumple: val,
+                                    ...(val === "si"
+                                      ? {
+                                          hallazgo: "",
+                                          id_tipo_nc: "",
+                                          id_accion: "",
+                                          emp_id_responsable: "",
+                                          emp_nombre_responsable: "",
+                                        }
+                                      : {
+                                          id_tipo_nc:
+                                            prev[p.id_pregunta_poka]?.id_tipo_nc ||
+                                            String(p.id_tipo_nc || ""),
+                                        }),
+                                  },
+                                }));
+                              }}
+                              disabled={soloLectura}
+                            >
+                              <ToggleButton value="si" sx={{ px: 1.25, py: 0.25, fontSize: "0.75rem", fontWeight: 700 }}>
+                                Sí
+                              </ToggleButton>
+                              <ToggleButton value="no" sx={{ px: 1.25, py: 0.25, fontSize: "0.75rem", fontWeight: 700 }}>
+                                No
+                              </ToggleButton>
+                            </ToggleButtonGroup>
+                          </TableCell>
+                        </TableRow>
+                        {esNo && (
+                          <TableRow sx={{ bgcolor: BRAND.hover }}>
+                            <TableCell colSpan={3} sx={{ py: 1, borderBottom: `1px solid ${BRAND.border}` }}>
+                              <Box
+                                sx={{
+                                  display: "grid",
+                                  gridTemplateColumns: {
+                                    xs: "1fr",
+                                    sm: "1.2fr 1fr 1fr 1fr",
+                                  },
+                                  gap: 1,
+                                }}
+                              >
+                                <TextField
+                                  size="small"
+                                  fullWidth
+                                  multiline
+                                  maxRows={3}
+                                  label="Hallazgo"
+                                  value={r.hallazgo}
+                                  onChange={(e) =>
+                                    updateRespuestaPoka(
+                                      p.id_pregunta_poka,
+                                      "hallazgo",
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={soloLectura}
+                                />
+                                <TextField
+                                  size="small"
+                                  select
+                                  fullWidth
+                                  label="Tipo NC"
+                                  value={r.id_tipo_nc}
+                                  onChange={(e) =>
+                                    updateRespuestaPoka(
+                                      p.id_pregunta_poka,
+                                      "id_tipo_nc",
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={soloLectura}
+                                >
+                                  {tiposNc.map((t) => (
+                                    <MenuItem key={t.id_tipo_nc} value={String(t.id_tipo_nc)}>
+                                      {t.nombre}
+                                    </MenuItem>
+                                  ))}
+                                </TextField>
+                                <TextField
+                                  size="small"
+                                  select
+                                  fullWidth
+                                  label="Acción"
+                                  value={r.id_accion}
+                                  onChange={(e) =>
+                                    updateRespuestaPoka(
+                                      p.id_pregunta_poka,
+                                      "id_accion",
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={soloLectura}
+                                >
+                                  {acciones.map((a) => (
+                                    <MenuItem key={a.id_accion} value={String(a.id_accion)}>
+                                      {a.nombre}
+                                    </MenuItem>
+                                  ))}
+                                </TextField>
+                                <TextField
+                                  size="small"
+                                  select
+                                  fullWidth
+                                  label="Responsable"
+                                  value={r.emp_id_responsable}
+                                  onChange={(e) =>
+                                    handleResponsablePoka(p.id_pregunta_poka, e.target.value)
+                                  }
+                                  disabled={soloLectura}
+                                >
+                                  {responsables.map((e) => (
+                                    <MenuItem key={e.emp_id} value={String(e.emp_id)}>
+                                      {e.nombre_completo}
+                                    </MenuItem>
+                                  ))}
+                                </TextField>
+                              </Box>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        )}
+
+        {!cerrada && (
           <Paper
             sx={{
               p: 2,
@@ -578,34 +911,80 @@ function ExecutarAuditoria({ idAuditoria }) {
           </Paper>
         )}
 
-        {preguntas.length > 0 && (
+        {cerrada && comentario && (
+          <Paper sx={{ p: 2, mt: 2, borderRadius: 1, border: `1px solid ${BRAND.border}` }}>
+            <Typography variant="caption" sx={{ color: BRAND.muted, fontWeight: 700 }}>
+              Comentario de la auditoría
+            </Typography>
+            <Typography sx={{ mt: 0.5, fontSize: "0.9rem", whiteSpace: "pre-wrap" }}>
+              {comentario}
+            </Typography>
+          </Paper>
+        )}
+
+        {!cerrada && (
           <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end", gap: 1, flexWrap: "wrap" }}>
             <Button
               variant="outlined"
               size="medium"
               startIcon={<Download />}
-              onClick={() => descargarHojaAuditoriaWord({ auditoria, preguntas })}
+              onClick={async () => {
+                let listaPoka = preguntasPoka;
+                if (pokaExenta !== "si" && !listaPoka.length) {
+                  try {
+                    const res = await fetch("/api/preguntas-poka-yoke");
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                      listaPoka = data.data || [];
+                    }
+                  } catch {
+                    /* ignore */
+                  }
+                }
+                const lpa = preguntas.map((p) => ({
+                  texto: p.texto,
+                  cumple:
+                    respuestas[p.id_pregunta]?.cumple || p.respuesta?.cumple || "",
+                }));
+                const pokaParaWord =
+                  pokaExenta === "si"
+                    ? []
+                    : listaPoka.map((p) => ({
+                        texto: p.texto,
+                        cumple:
+                          respuestasPoka[p.id_pregunta_poka]?.cumple ||
+                          p.respuesta?.cumple ||
+                          "",
+                      }));
+                descargarHojaAuditoriaWord({
+                  auditoria,
+                  preguntas: lpa,
+                  poka: {
+                    preguntaExenta: POKA_EXENTA_PREGUNTA_TEXTO,
+                    exenta: pokaExenta || "",
+                    preguntas: pokaParaWord,
+                  },
+                });
+              }}
               sx={{ textTransform: "none", fontWeight: 700 }}
             >
               Descargar Word
             </Button>
-            {!cerrada && (
-              <Button
-                variant="contained"
-                size="medium"
-                startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <Save />}
-                disabled={saving || fueraHorario}
-                onClick={handleGuardar}
-                sx={{
-                  bgcolor: BRAND.primary,
-                  "&:hover": { bgcolor: BRAND.primaryDark },
-                  textTransform: "none",
-                  fontWeight: 700,
-                }}
-              >
-                {saving ? "Guardando..." : "Guardar auditoría"}
-              </Button>
-            )}
+            <Button
+              variant="contained"
+              size="medium"
+              startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <Save />}
+              disabled={saving || fueraHorario}
+              onClick={handleGuardar}
+              sx={{
+                bgcolor: BRAND.primary,
+                "&:hover": { bgcolor: BRAND.primaryDark },
+                textTransform: "none",
+                fontWeight: 700,
+              }}
+            >
+              {saving ? "Guardando..." : "Guardar auditoría"}
+            </Button>
           </Box>
         )}
       </Box>

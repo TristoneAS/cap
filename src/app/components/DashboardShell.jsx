@@ -35,6 +35,7 @@ import {
   People,
   Layers,
   Groups,
+  VerifiedUser,
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import {
@@ -125,6 +126,13 @@ function buildMenuItems(isAdmin) {
         icon: Quiz,
         route: "/dashboard/catalogos/preguntas",
       },
+      { divider: true },
+      {
+        id: "preguntas-poka-yoke",
+        title: "Preguntas Poka Yoke",
+        icon: VerifiedUser,
+        route: "/dashboard/catalogos/preguntas-poka-yoke",
+      },
     ],
   };
 
@@ -187,7 +195,7 @@ function resolveWindowTitle(selectedItemId, menuItems) {
   for (const item of menuItems) {
     if (item.id === selectedItemId) return item.title;
     if (item.submenu) {
-      const sub = item.submenu.find((s) => s.id === selectedItemId);
+      const sub = item.submenu.find((s) => s.id === selectedItemId && !s.divider);
       if (sub) return sub.title;
     }
   }
@@ -276,6 +284,7 @@ function DashboardShell({ selectedItemId, children }) {
         "tipos-auditoria",
         "acciones",
         "preguntas",
+        "preguntas-poka-yoke",
       ].includes(selectedItemId)
     ) {
       setExpandedItems((p) => ({ ...p, configuracion: true }));
@@ -409,7 +418,7 @@ function DashboardShell({ selectedItemId, children }) {
             const Icon = item.icon;
             const isExpanded = expandedItems[item.id];
             const isSelected = item.hasSubmenu
-              ? item.submenu.some((s) => s.id === selectedItemId)
+              ? item.submenu.some((s) => s.id === selectedItemId && !s.divider)
               : selectedItemId === item.id ||
                 (item.id === "auditorias" &&
                   selectedItemId === "mis-auditorias");
@@ -475,7 +484,29 @@ function DashboardShell({ selectedItemId, children }) {
                 {item.hasSubmenu && (
                   <Collapse in={isExpanded} unmountOnExit>
                     <List disablePadding>
-                      {item.submenu.map((sub) => {
+                      {item.submenu.map((sub, subIdx) => {
+                        if (sub.divider) {
+                          return (
+                            <Box key={`sub-div-${subIdx}`} sx={{ px: 2, py: 0.75 }}>
+                              <Divider sx={{ borderColor: "rgba(255,255,255,0.12)" }} />
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  display: "block",
+                                  mt: 0.75,
+                                  px: 0.5,
+                                  color: BRAND.muted,
+                                  fontWeight: 700,
+                                  letterSpacing: 0.3,
+                                  textTransform: "uppercase",
+                                  fontSize: "0.65rem",
+                                }}
+                              >
+                                Poka Yoke
+                              </Typography>
+                            </Box>
+                          );
+                        }
                         const SubIcon = sub.icon;
                         const subSelected = selectedItemId === sub.id;
                         return (

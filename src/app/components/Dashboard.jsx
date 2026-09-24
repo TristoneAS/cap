@@ -798,6 +798,25 @@ function calcEficienciaList(list) {
   return { pct, sumSi, sumNo, sumTotal };
 }
 
+/** Eficiencia solo Poka Yoke (exenta=no, auditorías completadas). */
+function calcEficienciaListPoka(list) {
+  let sumSi = 0;
+  let sumNo = 0;
+  let sumTotal = 0;
+  for (const a of list) {
+    if (String(a.estado).toLowerCase() !== "completada") continue;
+    if (a.poka_exenta !== "no") continue;
+    const total = Number(a.poka_total_preguntas) || 0;
+    const si = Number(a.poka_respuestas_si) || 0;
+    if (total <= 0) continue;
+    sumSi += si;
+    sumNo += Math.max(0, total - si);
+    sumTotal += total;
+  }
+  const pct = sumTotal > 0 ? Math.round((sumSi / sumTotal) * 100) : null;
+  return { pct, sumSi, sumNo, sumTotal };
+}
+
 function Dashboard() {
   const router = useRouter();
   const actual = periodoActualParts();
@@ -817,10 +836,13 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [ncItems, setNcItems] = useState([]);
   const [ncTotal, setNcTotal] = useState(0);
+  const [ncPokaItems, setNcPokaItems] = useState([]);
+  const [ncPokaTotal, setNcPokaTotal] = useState(0);
   /** Drill desde avance: controla las gráficas circulares */
   const [drillArea, setDrillArea] = useState(null);
   const [drillSubArea, setDrillSubArea] = useState(null);
   const [vistaMagica, setVistaMagica] = useState(false);
+  const [vistaPoka, setVistaPoka] = useState(false);
   const [ncMagico, setNcMagico] = useState({});
   const [loadingMagico, setLoadingMagico] = useState(false);
   const [exportandoMagico, setExportandoMagico] = useState(false);
@@ -828,6 +850,9 @@ function Dashboard() {
   const [detalleNcItems, setDetalleNcItems] = useState([]);
   const [detalleNcLista, setDetalleNcLista] = useState([]);
   const [loadingDetalleNc, setLoadingDetalleNc] = useState(false);
+  const [detalleNcEsPoka, setDetalleNcEsPoka] = useState(false);
+  const [ncPokaMagico, setNcPokaMagico] = useState({});
+  const [loadingPokaMagico, setLoadingPokaMagico] = useState(false);
 
   const anios = useMemo(() => aniosDisponibles(actual.anio), [actual.anio]);
   const filtrosPeriodoActivos = mes !== "" || anio !== actual.anio;
@@ -845,8 +870,9 @@ function Dashboard() {
   );
 
   const abrirDetalleNc = useCallback(
-    async (sub, ncResumen) => {
+    async (sub, ncResumen, esPoka = false) => {
       if (!sub) return;
+      setDetalleNcEsPoka(esPoka);
       setDetalleNcSub(sub);
       setDetalleNcItems(ncResumen?.items || []);
       setDetalleNcLista([]);
@@ -859,7 +885,10 @@ function Dashboard() {
           id_sub_area: String(sub.id_sub_area),
         });
         appendPeriodoParams(params, { anio, mes });
-        const res = await fetch(`/api/auditorias/no-conformidades?${params}`);
+        const endpoint = esPoka
+          ? "/api/auditorias/no-conformidades-poka"
+          : "/api/auditorias/no-conformidades";
+        const res = await fetch(`${endpoint}?${params}`);
         const data = await res.json();
         if (res.ok && data.success) {
           setDetalleNcItems(data.data?.items || ncResumen?.items || []);
@@ -878,6 +907,7 @@ function Dashboard() {
     setDetalleNcSub(null);
     setDetalleNcItems([]);
     setDetalleNcLista([]);
+    setDetalleNcEsPoka(false);
   };
 
   const load = useCallback(async () => {
@@ -967,6 +997,36 @@ function Dashboard() {
         if (!cancelled) {
           setNcItems([]);
           setNcTotal(0);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [idAreaActivo, idSubAreaActivo, anio, mes]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams({ limit: "12" });
+        appendPeriodoParams(params, { anio, mes });
+        if (idAreaActivo) params.set("id_area", String(idAreaActivo));
+        if (idSubAreaActivo) params.set("id_sub_area", String(idSubAreaActivo));
+        const res = await fetch(`/api/auditorias/no-conformidades-poka?${params}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok && data.success) {
+          setNcPokaItems(data.data?.items || []);
+          setNcPokaTotal(data.data?.total || 0);
+        } else {
+          setNcPokaItems([]);
+          setNcPokaTotal(0);
+        }
+      } catch {
+        if (!cancelled) {
+          setNcPokaItems([]);
+          setNcPokaTotal(0);
         }
       }
     })();
@@ -1067,6 +1127,10 @@ function Dashboard() {
     return calcEficienciaList(auditoriasCirculares);
   }, [auditoriasCirculares]);
 
+  const eficienciaPokaStats = useMemo(() => {
+    return calcEficienciaListPoka(auditoriasCirculares);
+  }, [auditoriasCirculares]);
+
   /** Panorama completo: cada sub área con título Área - Sub área (vista mágica) */
   const panoramaSubAreas = useMemo(() => {
     const bySub = new Map();
@@ -1099,6 +1163,71 @@ function Dashboard() {
       })
       .sort((a, b) => String(a.titulo).localeCompare(String(b.titulo), "es"));
   }, [auditorias]);
+
+  const panoramaSubAreasPoka = useMemo(() => {
+    const bySub = new Map();
+    for (const a of auditorias) {
+      const key = String(a.id_sub_area);
+      if (!bySub.has(key)) {
+        const areaNom = a.area_nombre || `Área ${a.id_area}`;
+        const subNom = a.sub_area_nombre || `Sub área ${a.id_sub_area}`;
+        bySub.set(key, {
+          id_area: a.id_area,
+          id_sub_area: a.id_sub_area,
+          area_nombre: areaNom,
+          sub_area_nombre: subNom,
+          titulo: `${areaNom} - ${subNom}`,
+          auditorias: [],
+        });
+      }
+      bySub.get(key).auditorias.push(a);
+    }
+    return [...bySub.values()]
+      .map((sub) => {
+        const efi = calcEficienciaListPoka(sub.auditorias);
+        return { ...sub, efi };
+      })
+      .sort((a, b) => String(a.titulo).localeCompare(String(b.titulo), "es"));
+  }, [auditorias]);
+
+  useEffect(() => {
+    if (!vistaPoka || !panoramaSubAreasPoka.length) return undefined;
+    let cancelled = false;
+    (async () => {
+      setLoadingPokaMagico(true);
+      try {
+        const entries = await Promise.all(
+          panoramaSubAreasPoka.map(async (sub) => {
+            const params = new URLSearchParams({
+              limit: "8",
+              id_area: String(sub.id_area),
+              id_sub_area: String(sub.id_sub_area),
+            });
+            appendPeriodoParams(params, { anio, mes });
+            const res = await fetch(
+              `/api/auditorias/no-conformidades-poka?${params}`,
+            );
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+              return [String(sub.id_sub_area), { items: [], total: 0 }];
+            }
+            return [
+              String(sub.id_sub_area),
+              { items: data.data?.items || [], total: data.data?.total || 0 },
+            ];
+          }),
+        );
+        if (!cancelled) setNcPokaMagico(Object.fromEntries(entries));
+      } catch {
+        if (!cancelled) setNcPokaMagico({});
+      } finally {
+        if (!cancelled) setLoadingPokaMagico(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [vistaPoka, panoramaSubAreasPoka, anio, mes]);
 
   useEffect(() => {
     if (!vistaMagica || !panoramaSubAreas.length) return undefined;
@@ -1395,6 +1524,20 @@ function Dashboard() {
               >
                 Ver graficas
               </Button>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<BarChartIcon />}
+                onClick={() => setVistaPoka(true)}
+                sx={{
+                  textTransform: "none",
+                  bgcolor: "#00897B",
+                  boxShadow: "0 4px 14px rgba(0, 137, 123, 0.35)",
+                  "&:hover": { bgcolor: "#00695C" },
+                }}
+              >
+                Graficas Poka Yoke
+              </Button>
             </Paper>
 
             <Box
@@ -1658,6 +1801,306 @@ function Dashboard() {
             </Box>
           </Box>
         )}
+
+        <Dialog
+          open={vistaPoka}
+          onClose={() => setVistaPoka(false)}
+          fullWidth
+          maxWidth="xl"
+          scroll="paper"
+          slotProps={{
+            paper: {
+              sx: {
+                borderRadius: 1,
+                maxHeight: "92vh",
+              },
+            },
+          }}
+        >
+          <DialogTitle
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              pr: 1,
+              py: 1.25,
+              borderBottom: `1px solid ${BRAND.border}`,
+            }}
+          >
+            <BarChartIcon sx={{ color: "#00897B" }} />
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{ fontWeight: 800, color: "#00695C", fontSize: "1.05rem" }}>
+                Graficas Poka Yoke
+              </Typography>
+              <Typography variant="caption" sx={{ color: BRAND.muted, fontWeight: 600 }}>
+                Resumen del periodo y desglose por sub área · {labelPeriodo(anio, mes)} · Clic en
+                tarjeta con NC para ver pregunta y hallazgo
+              </Typography>
+            </Box>
+            <IconButton size="small" onClick={() => setVistaPoka(false)} aria-label="Cerrar">
+              <Close />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent sx={{ bgcolor: BRAND.bg, p: { xs: 1, sm: 1.5 } }}>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+                gap: 1,
+                mb: 1.5,
+                pt: 0.5,
+              }}
+            >
+              <ChartSection
+                sx={{ mb: 0 }}
+                title={
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                    <Speed sx={{ color: "#00897B", fontSize: 18 }} />
+                    Eficiencia global
+                    {eficienciaPokaStats.pct != null && (
+                      <Typography
+                        component="span"
+                        sx={{
+                          fontWeight: 800,
+                          color: colorBarra(eficienciaPokaStats.pct),
+                          fontSize: "0.9rem",
+                        }}
+                      >
+                        {eficienciaPokaStats.pct}%
+                      </Typography>
+                    )}
+                  </Box>
+                }
+                hint={`Planta · ${etiquetaFiltroCirculares} · no exentas`}
+              >
+                {eficienciaPokaStats.sumTotal === 0 ? (
+                  <Box sx={{ py: 2, textAlign: "center", color: BRAND.muted, fontSize: 13 }}>
+                    Sin datos Poka Yoke
+                  </Box>
+                ) : (
+                  <EficienciaPie
+                    pct={eficienciaPokaStats.pct}
+                    sumSi={eficienciaPokaStats.sumSi}
+                    sumNo={eficienciaPokaStats.sumNo}
+                    height={160}
+                  />
+                )}
+              </ChartSection>
+
+              <ChartSection
+                sx={{ mb: 0 }}
+                title={
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                    <ReportProblem sx={{ color: "#00695C", fontSize: 18 }} />
+                    NC global
+                    {ncPokaTotal > 0 && (
+                      <Typography
+                        component="span"
+                        sx={{ fontWeight: 700, color: BRAND.muted, fontSize: "0.85rem" }}
+                      >
+                        {ncPokaTotal}
+                      </Typography>
+                    )}
+                  </Box>
+                }
+                hint="Todos los tipos de NC Poka en el periodo"
+              >
+                {ncPokaItems.length === 0 ? (
+                  <Box sx={{ py: 2, textAlign: "center", color: BRAND.muted, fontSize: 13 }}>
+                    No hay NC Poka Yoke
+                  </Box>
+                ) : (
+                  <Box>
+                    <NcPieChart data={ncPokaItems} height={160} hideLegend />
+                    <NcTipoList items={ncPokaItems} />
+                  </Box>
+                )}
+              </ChartSection>
+            </Box>
+
+            <Typography
+              sx={{
+                fontWeight: 800,
+                fontSize: "0.85rem",
+                color: "#00695C",
+                mb: 0.75,
+              }}
+            >
+              Por área y sub área
+            </Typography>
+            {loadingPokaMagico && (
+              <Box sx={{ display: "flex", justifyContent: "center", py: 1.5 }}>
+                <CircularProgress size={24} sx={{ color: "#00897B" }} />
+              </Box>
+            )}
+            {panoramaSubAreasPoka.length === 0 ? (
+              <Box sx={{ py: 4, textAlign: "center", color: BRAND.muted }}>
+                No hay auditorías en el periodo
+              </Box>
+            ) : (
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "1fr 1fr",
+                    md: "1fr 1fr 1fr",
+                    lg: "1fr 1fr 1fr 1fr",
+                  },
+                  gap: 1,
+                }}
+              >
+                {panoramaSubAreasPoka.map((sub) => {
+                  const nc = ncPokaMagico[String(sub.id_sub_area)] || {
+                    items: [],
+                    total: 0,
+                  };
+                  const tieneNc = nc.total > 0;
+                  return (
+                    <Paper
+                      key={`poka-${sub.id_sub_area}`}
+                      onClick={() => {
+                        if (tieneNc) abrirDetalleNc(sub, nc, true);
+                      }}
+                      sx={{
+                        p: 1,
+                        borderRadius: 1,
+                        border: `1px solid ${tieneNc ? "rgba(0,137,123,0.35)" : BRAND.border}`,
+                        cursor: tieneNc ? "pointer" : "default",
+                        transition: "border-color 0.15s, box-shadow 0.15s",
+                        "&:hover": tieneNc
+                          ? {
+                              borderColor: "#00897B",
+                              boxShadow: "0 0 0 1px #00897B",
+                            }
+                          : undefined,
+                      }}
+                    >
+                      <Typography
+                        title={sub.titulo}
+                        noWrap
+                        sx={{
+                          fontWeight: 800,
+                          color: BRAND.ink,
+                          fontSize: "0.78rem",
+                          lineHeight: 1.2,
+                          mb: 0.25,
+                        }}
+                      >
+                        {sub.titulo}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: BRAND.muted,
+                          fontWeight: 700,
+                          fontSize: "0.68rem",
+                          display: "block",
+                          mb: 0.75,
+                        }}
+                      >
+                        {sub.efi.pct != null ? `Efi Poka ${sub.efi.pct}%` : "Sin eficiencia Poka"}
+                        {nc.total > 0 ? ` · ${nc.total} NC` : ""}
+                        {tieneNc ? " · ver detalle" : ""}
+                      </Typography>
+
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: 0.75,
+                          alignItems: "start",
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            borderRadius: 1,
+                            border: `1px solid ${BRAND.border}`,
+                            px: 0.5,
+                            py: 0.5,
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              fontWeight: 800,
+                              fontSize: "0.62rem",
+                              color: BRAND.muted,
+                              mb: 0.25,
+                              textTransform: "uppercase",
+                              letterSpacing: 0.2,
+                            }}
+                          >
+                            Eficiencia
+                          </Typography>
+                          {sub.efi.sumTotal === 0 ? (
+                            <Box
+                              sx={{
+                                py: 2,
+                                textAlign: "center",
+                                color: BRAND.muted,
+                                fontSize: 11,
+                              }}
+                            >
+                              —
+                            </Box>
+                          ) : (
+                            <EficienciaPie
+                              pct={sub.efi.pct}
+                              sumSi={sub.efi.sumSi}
+                              sumNo={sub.efi.sumNo}
+                              height={118}
+                              hideLegend
+                            />
+                          )}
+                        </Box>
+
+                        <Box
+                          sx={{
+                            borderRadius: 1,
+                            border: `1px solid ${BRAND.border}`,
+                            px: 0.5,
+                            py: 0.5,
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              fontWeight: 800,
+                              fontSize: "0.62rem",
+                              color: BRAND.muted,
+                              mb: 0.25,
+                              textTransform: "uppercase",
+                              letterSpacing: 0.2,
+                            }}
+                          >
+                            NC{nc.total > 0 ? ` (${nc.total})` : ""}
+                          </Typography>
+                          {nc.items.length === 0 ? (
+                            <Box
+                              sx={{
+                                py: 2,
+                                textAlign: "center",
+                                color: BRAND.muted,
+                                fontSize: 11,
+                              }}
+                            >
+                              —
+                            </Box>
+                          ) : (
+                            <NcPieChart data={nc.items} height={118} hideLegend />
+                          )}
+                        </Box>
+                      </Box>
+
+                      {nc.items.length > 0 && (
+                        <NcTipoList items={nc.items} dense max={4} />
+                      )}
+                    </Paper>
+                  );
+                })}
+              </Box>
+            )}
+          </DialogContent>
+        </Dialog>
 
         <Dialog
           open={vistaMagica}
@@ -1925,10 +2368,10 @@ function Dashboard() {
               borderBottom: `1px solid ${BRAND.border}`,
             }}
           >
-            <ReportProblem sx={{ color: "#C62828" }} />
+            <ReportProblem sx={{ color: detalleNcEsPoka ? "#00695C" : "#C62828" }} />
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography sx={{ fontWeight: 800, color: BRAND.ink, lineHeight: 1.2 }}>
-                Detalle de NC
+                {detalleNcEsPoka ? "Detalle NC Poka Yoke" : "Detalle de NC"}
               </Typography>
               <Typography variant="caption" sx={{ color: BRAND.muted }}>
                 {detalleNcSub?.titulo || ""}

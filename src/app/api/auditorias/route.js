@@ -68,7 +68,30 @@ export async function GET(request) {
                    AND pa.id_area = aud.id_area
                    AND pa.id_sub_area = aud.id_sub_area
                )
-             END AS total_preguntas
+             END AS total_preguntas,
+             (SELECT apk.exenta FROM auditoria_poka_yoke apk WHERE apk.id_auditoria = aud.id_auditoria) AS poka_exenta,
+             (
+               SELECT COUNT(*)
+               FROM auditoria_poka_yoke_respuestas apr
+               WHERE apr.id_auditoria = aud.id_auditoria AND apr.cumple IS NOT NULL
+             ) AS poka_respondidas,
+             (
+               SELECT COUNT(*)
+               FROM auditoria_poka_yoke_respuestas apr
+               WHERE apr.id_auditoria = aud.id_auditoria AND apr.cumple = 'si'
+             ) AS poka_respuestas_si,
+             CASE
+               WHEN (SELECT apk.exenta FROM auditoria_poka_yoke apk WHERE apk.id_auditoria = aud.id_auditoria) = 'no'
+                 AND aud.estado IN ('completada', 'cancelada') THEN (
+                 SELECT COUNT(*)
+                 FROM auditoria_poka_yoke_respuestas apr
+                 WHERE apr.id_auditoria = aud.id_auditoria AND apr.cumple IS NOT NULL
+               )
+               WHEN (SELECT apk.exenta FROM auditoria_poka_yoke apk WHERE apk.id_auditoria = aud.id_auditoria) = 'no' THEN (
+                 SELECT COUNT(*) FROM preguntas_poka_yoke WHERE estado = 'activo'
+               )
+               ELSE NULL
+             END AS poka_total_preguntas
       FROM auditorias aud
       INNER JOIN areas a ON a.id_area = aud.id_area
       INNER JOIN sub_areas sa ON sa.id_sub_area = aud.id_sub_area
@@ -97,12 +120,32 @@ export async function GET(request) {
                 respuestasSi: respuestas_si,
               })
             : null;
+        const poka_exenta = r.poka_exenta === "si" || r.poka_exenta === "no" ? r.poka_exenta : null;
+        const poka_total_preguntas =
+          r.poka_total_preguntas != null ? Number(r.poka_total_preguntas) : null;
+        const poka_respondidas = Number(r.poka_respondidas || 0);
+        const poka_respuestas_si = Number(r.poka_respuestas_si || 0);
+        const poka_porcentaje =
+          poka_exenta === "no" &&
+          poka_total_preguntas != null &&
+          poka_total_preguntas > 0 &&
+          (r.estado === "completada" || poka_respondidas >= poka_total_preguntas)
+            ? calcularPorcentajeCumplimiento({
+                totalPreguntas: poka_total_preguntas,
+                respuestasSi: poka_respuestas_si,
+              })
+            : null;
         return {
           ...r,
           total_preguntas,
           respondidas,
           respuestas_si,
           porcentaje,
+          poka_exenta,
+          poka_total_preguntas,
+          poka_respondidas,
+          poka_respuestas_si,
+          poka_porcentaje,
         };
       }),
     );

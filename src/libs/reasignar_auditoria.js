@@ -17,10 +17,11 @@ const AUDITORIA_SELECT = `
 
 async function contarRespuestas(db, idAuditoria) {
   const [rows] = await db.query(
-    `SELECT COUNT(*) AS total
-     FROM auditoria_respuestas
-     WHERE id_auditoria = ? AND cumple IS NOT NULL`,
-    [idAuditoria],
+    `SELECT
+       (SELECT COUNT(*) FROM auditoria_respuestas WHERE id_auditoria = ? AND cumple IS NOT NULL) +
+       (SELECT COUNT(*) FROM auditoria_poka_yoke_respuestas WHERE id_auditoria = ? AND cumple IS NOT NULL) +
+       (SELECT COUNT(*) FROM auditoria_poka_yoke WHERE id_auditoria = ? AND exenta IS NOT NULL) AS total`,
+    [idAuditoria, idAuditoria, idAuditoria],
   );
   return Number(rows[0]?.total || 0);
 }
@@ -156,6 +157,10 @@ export async function reasignarAuditoria(idAuditoria, nuevoSlot, db = capDb) {
   try {
     await conn.beginTransaction();
 
+    await conn.query("DELETE FROM auditoria_poka_yoke_respuestas WHERE id_auditoria = ?", [
+      idAuditoria,
+    ]);
+    await conn.query("DELETE FROM auditoria_poka_yoke WHERE id_auditoria = ?", [idAuditoria]);
     await conn.query("DELETE FROM auditoria_respuestas WHERE id_auditoria = ?", [
       idAuditoria,
     ]);

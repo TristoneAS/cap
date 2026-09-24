@@ -2,6 +2,7 @@ import { capDb } from "@/libs/cap_db";
 import { jsonError, jsonOk, parseId } from "@/libs/api_helpers";
 import { puedeAuditarEnHorario } from "@/libs/turno_horario";
 import { loadTurnosByCodigo } from "@/libs/turnos_db";
+import { guardarPokaYoke, pokaCumpleParaCompletar } from "@/libs/poka_yoke_helpers";
 
 export async function PUT(request, { params }) {
   try {
@@ -16,7 +17,10 @@ export async function PUT(request, { params }) {
       body.is_admin === 1;
 
     if (!empId) return jsonError("emp_id es requerido", 400);
-    if (!respuestas.length) return jsonError("No hay respuestas para guardar", 400);
+    const pokaPayload = body.poka_yoke;
+    if (!respuestas.length && !pokaPayload) {
+      return jsonError("No hay respuestas para guardar", 400);
+    }
 
     const [auditorias] = await capDb.query(
       `SELECT aud.id_auditoria, aud.emp_id, aud.estado, aud.turno, a.nombre AS area_nombre
@@ -46,6 +50,15 @@ export async function PUT(request, { params }) {
       if (!horario.ok) {
         return jsonError(horario.motivo, 403);
       }
+    }
+
+    if (pokaPayload) {
+      const pokaResult = await guardarPokaYoke(idAuditoria, pokaPayload);
+      if (pokaResult.error) {
+        return jsonError(pokaResult.error, pokaResult.status || 400);
+      }
+    } else if (!respuestas.length) {
+      return jsonError("No hay respuestas para guardar", 400);
     }
 
     for (const item of respuestas) {
@@ -141,8 +154,10 @@ export async function PUT(request, { params }) {
 
     const totalPreguntas = preguntas.length;
     const totalRespondidas = respondidas[0]?.total ?? 0;
+    const pokaOk = await pokaCumpleParaCompletar(idAuditoria);
+    const lpaOk = totalPreguntas > 0 && totalRespondidas >= totalPreguntas;
     const nuevoEstado =
-      totalPreguntas > 0 && totalRespondidas >= totalPreguntas
+      lpaOk && pokaOk
         ? "completada"
         : aud.estado === "vencida"
           ? "vencida"

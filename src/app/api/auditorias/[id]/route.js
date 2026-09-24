@@ -11,6 +11,8 @@ import {
   assertAuditoriaAccess,
   parseIsAdminFlag,
 } from "@/libs/auditoria_access";
+import { buildPokaChecklist } from "@/libs/poka_yoke_helpers";
+import { POKA_EXENTA_PREGUNTA_TEXTO } from "@/libs/poka_yoke_constants";
 
 const AUDITORIA_SELECT = `
   SELECT aud.id_auditoria, aud.id_area, aud.id_sub_area, aud.id_tipo_auditoria,
@@ -112,12 +114,22 @@ export async function GET(request, { params }) {
           })
         : null;
 
+    const poka = await buildPokaChecklist(id, cerrada);
+
     return jsonOk({
       auditoria: aud,
       preguntas: checklist,
       porcentaje,
       respuestas_si: respuestasSi,
       total_preguntas: totalPreguntas,
+      poka_yoke: {
+        pregunta_exenta: POKA_EXENTA_PREGUNTA_TEXTO,
+        exenta: poka.exenta,
+        preguntas: poka.preguntas,
+        porcentaje: poka.porcentaje,
+        respuestas_si: poka.respuestas_si,
+        total_preguntas: poka.total_preguntas,
+      },
       horario: {
         permitido: horario.ok,
         motivo: horario.motivo || null,
