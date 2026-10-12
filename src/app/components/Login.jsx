@@ -28,6 +28,7 @@ import {
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getPostLoginRedirect } from "@/libs/dashboard_access";
+import { buildCapAccess, persistCapAccessClient } from "@/libs/cap_roles";
 import {
   getSessionExpiresAt,
   setSessionCookieClient,
@@ -106,10 +107,10 @@ function Login() {
         localStorage.setItem("infoUser", JSON.stringify(data.empleado));
         localStorage.setItem("user", JSON.stringify(data.auth));
         localStorage.setItem("isAuthenticated", "true");
-        const adminFlag =
-          data.auth.isAdmin === true ||
-          data.auth.isAdmin === "true" ||
-          data.auth.isAdmin === 1;
+        const capRoles = Array.isArray(data.capRoles) ? data.capRoles : [];
+        const capAccess = data.capAccess ?? buildCapAccess(capRoles);
+        persistCapAccessClient(capAccess);
+        const adminFlag = capAccess.isCapAdmin === true;
         localStorage.setItem("isAdmin", adminFlag ? "true" : "false");
         localStorage.setItem("usuario", username);
         try {
@@ -121,7 +122,7 @@ function Login() {
         }
         const dest = getPostLoginRedirect(
           searchParams.get("redirect"),
-          adminFlag,
+          capAccess,
         );
         setTimeout(() => router.replace(dest), 300);
         return;

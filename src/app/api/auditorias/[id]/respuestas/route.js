@@ -3,6 +3,7 @@ import { jsonError, jsonOk, parseId } from "@/libs/api_helpers";
 import { puedeAuditarEnHorario } from "@/libs/turno_horario";
 import { loadTurnosByCodigo } from "@/libs/turnos_db";
 import { guardarPokaYoke, pokaCumpleParaCompletar } from "@/libs/poka_yoke_helpers";
+import { sincronizarTicketsDesdePoka } from "@/libs/tickets_mantenimiento";
 
 export async function PUT(request, { params }) {
   try {
@@ -56,6 +57,11 @@ export async function PUT(request, { params }) {
       const pokaResult = await guardarPokaYoke(idAuditoria, pokaPayload);
       if (pokaResult.error) {
         return jsonError(pokaResult.error, pokaResult.status || 400);
+      }
+      try {
+        await sincronizarTicketsDesdePoka(idAuditoria);
+      } catch (ticketErr) {
+        console.error("Tickets mantenimiento (no bloquea guardado):", ticketErr);
       }
     } else if (!respuestas.length) {
       return jsonError("No hay respuestas para guardar", 400);

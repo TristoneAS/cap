@@ -8,6 +8,8 @@ export const AUTH_STORAGE_KEYS = [
   "user",
   "isAuthenticated",
   "isAdmin",
+  "capRoles",
+  "capAccess",
   "usuario",
   "sessionExpiresAt",
   "capUser",

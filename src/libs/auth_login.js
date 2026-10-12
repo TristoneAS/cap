@@ -1,6 +1,6 @@
 /**
- * Validación de respuesta del servidor LDAP (SYSTEMVDOCS/AUTHENTICATE).
- * Fail-closed: solo entra si el JSON trae `authenticated: true`.
+ * Validación de respuesta del servidor de auth (CAP/AUTHENTICATE).
+ * Fail-closed: `authorization: "Authorized"` o `authenticated: true`.
  */
 export function parseAuthenticatedFlag(value) {
   if (value === true || value === 1) return true;
@@ -13,9 +13,17 @@ export function parseAuthenticatedFlag(value) {
   return false;
 }
 
+export function isAuthorizationOk(authData) {
+  const authz = String(authData?.authorization ?? "")
+    .trim()
+    .toLowerCase();
+  if (authz === "authorized") return true;
+  return parseAuthenticatedFlag(authData?.authenticated);
+}
+
 export function isAuthResponseOk(response, authData) {
   if (!response?.ok) return false;
-  return parseAuthenticatedFlag(authData?.authenticated);
+  return isAuthorizationOk(authData);
 }
 
 export function mensajeErrorAuth(authData) {

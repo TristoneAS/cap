@@ -36,6 +36,10 @@ import {
   Layers,
   Groups,
   VerifiedUser,
+  Build,
+  PrecisionManufacturing,
+  ConfirmationNumber,
+  BarChart,
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import {
@@ -44,9 +48,12 @@ import {
   syncSessionCookieFromStorage,
 } from "@/libs/auth_session";
 import {
-  isAdminOnlyDashboardPath,
+  canAccessDashboardPath,
+  getCapAccessClient,
+  resolveDeniedRedirect,
   NON_ADMIN_HOME,
 } from "@/libs/dashboard_access";
+import { isAuditorLpaSinRolesCap } from "@/libs/cap_roles";
 import UsuarioBloqueadoModal from "./UsuarioBloqueadoModal";
 import { BRAND } from "@/libs/theme_palette";
 
@@ -63,14 +70,14 @@ function getMiEmpId() {
 
 const drawerWidth = 260;
 
-function buildMenuItems(isAdmin) {
+function buildMenuGroups(access) {
+  const isAdmin = access.canCalidadAdmin;
   const configuracion = {
     id: "configuracion",
     title: "Configuración",
     icon: Settings,
-    description: "Siga el orden del menú al capturar",
+    description: "Catálogos LPA · siga el orden",
     hasSubmenu: true,
-    adminOnly: true,
     submenu: [
       {
         id: "niveles",
@@ -126,76 +133,187 @@ function buildMenuItems(isAdmin) {
         icon: Quiz,
         route: "/dashboard/catalogos/preguntas",
       },
-      { divider: true },
-      {
-        id: "preguntas-poka-yoke",
-        title: "Preguntas Poka Yoke",
-        icon: VerifiedUser,
-        route: "/dashboard/catalogos/preguntas-poka-yoke",
-      },
     ],
   };
 
-  const items = [
-    ...(isAdmin
-      ? [
-          {
-            id: "inicio",
-            title: "Inicio",
-            icon: Home,
-            description: "Panel principal",
-            route: "/dashboard",
-          },
-        ]
-      : []),
-    {
-      id: "auditorias",
-      title: "Auditorías",
-      icon: Assignment,
-      description: isAdmin ? "Asignaciones LPA" : "Mis auditorías y equipo",
-      hasSubmenu: true,
-      submenu: [
-        {
-          id: "mis-auditorias",
-          title: "Mis auditorías",
-          icon: Assignment,
-          route: "/dashboard/auditorias",
-        },
-        {
-          id: "mi-equipo",
-          title: "Mi equipo",
-          icon: Groups,
-          route: "/dashboard/auditorias/equipo",
-        },
+  const auditorias = {
+    id: "auditorias",
+    title: "Auditorías",
+    icon: Assignment,
+    description: isAdmin ? "Asignaciones LPA" : "Mis auditorías y equipo",
+    hasSubmenu: true,
+    submenu: [
+      {
+        id: "mis-auditorias",
+        title: "Mis auditorías",
+        icon: Assignment,
+        route: "/dashboard/auditorias",
+      },
+      {
+        id: "mi-equipo",
+        title: "Mi equipo",
+        icon: Groups,
+        route: "/dashboard/auditorias/equipo",
+      },
+      ...(isAdmin
+        ? [
+            {
+              id: "seguimiento-auditorias",
+              title: "Seguimiento del mes",
+              icon: FactCheck,
+              route: "/dashboard/auditorias/seguimiento",
+            },
+            {
+              id: "generar-auditorias",
+              title: "Generar del mes",
+              icon: AutoMode,
+              route: "/dashboard/auditorias/generar",
+            },
+          ]
+        : []),
+    ],
+  };
+
+  const soloCapArea =
+    (access.isCapMantenimiento || access.isCapProcesos) && !access.isCapAdmin;
+
+  const auditorSinRolesCap = isAuditorLpaSinRolesCap(access);
+
+  const misAuditoriasNav = {
+    id: "mis-auditorias",
+    title: "Mis auditorías",
+    icon: Assignment,
+    description: "Auditorías LPA asignadas",
+    route: "/dashboard/auditorias",
+  };
+
+  const miEquipoNav = {
+    id: "mi-equipo",
+    title: "Mi equipo",
+    icon: Groups,
+    description: "Pendientes de subordinados",
+    route: "/dashboard/auditorias/equipo",
+  };
+
+  const lpaAuditoriasMenu = {
+    id: "auditorias",
+    title: "Auditorías",
+    icon: Assignment,
+    description: "Mis auditorías y equipo",
+    hasSubmenu: true,
+    submenu: [misAuditoriasNav, miEquipoNav],
+  };
+
+  const calidadItemsAuditorSolo = [lpaAuditoriasMenu];
+
+  const calidadItems = auditorSinRolesCap
+    ? calidadItemsAuditorSolo
+    : [
         ...(isAdmin
           ? [
               {
-                id: "seguimiento-auditorias",
-                title: "Seguimiento del mes",
-                icon: FactCheck,
-                route: "/dashboard/auditorias/seguimiento",
-              },
-              {
-                id: "generar-auditorias",
-                title: "Generar del mes",
-                icon: AutoMode,
-                route: "/dashboard/auditorias/generar",
+                id: "inicio",
+                title: "Inicio",
+                icon: Home,
+                description: "Panel principal",
+                route: "/dashboard",
               },
             ]
           : []),
-      ],
-    },
-    ...(isAdmin ? [configuracion] : []),
-  ];
+        auditorias,
+        ...(isAdmin ? [configuracion] : []),
+      ];
 
-  return items;
+  const groups = [];
+  if (!soloCapArea) {
+    groups.push({
+      id: "calidad",
+      label: auditorSinRolesCap ? "" : "Calidad",
+      items: calidadItems,
+    });
+  } else {
+    groups.push({
+      id: "lpa",
+      label: "",
+      items: [lpaAuditoriasMenu],
+    });
+  }
+
+  if (access.canMantenimiento) {
+    groups.push({
+      id: "mantenimiento",
+      label: "Mantenimiento",
+      items: [
+        {
+          id: "mantenimiento",
+          title: "Mantenimiento",
+          icon: Build,
+          description: "Tickets por hallazgos Poka Yoke",
+          hasSubmenu: true,
+          submenu: [
+            {
+              id: "tickets-mantenimiento",
+              title: "Tickets",
+              icon: ConfirmationNumber,
+              route: "/dashboard/mantenimiento/tickets",
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  if (access.canProcesos) {
+    groups.push({
+      id: "procesos",
+      label: "Procesos",
+      items: [
+        {
+          id: "procesos",
+          title: "Procesos",
+          icon: PrecisionManufacturing,
+          description: "Checklist y catálogos de proceso",
+          hasSubmenu: true,
+          submenu: [
+            {
+              id: "tickets-procesos",
+              title: "Cierre de tickets",
+              icon: ConfirmationNumber,
+              route: "/dashboard/procesos/tickets",
+            },
+            {
+              id: "graficas-poka-yoke",
+              title: "Gráficas Poka Yoke",
+              icon: BarChart,
+              route: "/dashboard/procesos/graficas-poka-yoke",
+            },
+            {
+              id: "preguntas-poka-yoke",
+              title: "Preguntas Poka Yoke",
+              icon: VerifiedUser,
+              route: "/dashboard/catalogos/preguntas-poka-yoke",
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  return groups;
 }
 
-function resolveWindowTitle(selectedItemId, menuItems) {
+function flattenMenuItems(groups) {
+  return groups.flatMap((g) => g.items);
+}
+
+function resolveWindowTitle(selectedItemId, menuGroups) {
+  const menuItems = flattenMenuItems(menuGroups);
   for (const item of menuItems) {
     if (item.id === selectedItemId) return item.title;
     if (item.submenu) {
-      const sub = item.submenu.find((s) => s.id === selectedItemId && !s.divider);
+      const sub = item.submenu.find(
+        (s) => s.id === selectedItemId && !s.divider && !s.section,
+      );
       if (sub) return sub.title;
     }
   }
@@ -208,17 +326,20 @@ function DashboardShell({ selectedItemId, children }) {
   const pathname = usePathname();
   const [authorized, setAuthorized] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [capAccess, setCapAccess] = useState(() => getCapAccessClient());
   const [usuarioOk, setUsuarioOk] = useState(null);
   const [empIdSesion, setEmpIdSesion] = useState("");
   const [expandedItems, setExpandedItems] = useState({
     auditorias: false,
     configuracion: false,
+    mantenimiento: false,
+    procesos: false,
   });
 
-  const menuItems = useMemo(() => buildMenuItems(isAdmin), [isAdmin]);
+  const menuGroups = useMemo(() => buildMenuGroups(capAccess), [capAccess]);
   const windowTitle = useMemo(
-    () => resolveWindowTitle(selectedItemId, menuItems),
-    [selectedItemId, menuItems],
+    () => resolveWindowTitle(selectedItemId, menuGroups),
+    [selectedItemId, menuGroups],
   );
 
   useEffect(() => {
@@ -238,8 +359,9 @@ function DashboardShell({ selectedItemId, children }) {
     }
 
     setAuthorized(true);
-    const admin = localStorage.getItem("isAdmin") === "true";
-    setIsAdmin(admin);
+    const access = getCapAccessClient();
+    setCapAccess(access);
+    setIsAdmin(access.canCalidadAdmin);
 
     const empId = getMiEmpId();
     setEmpIdSesion(empId);
@@ -284,20 +406,29 @@ function DashboardShell({ selectedItemId, children }) {
         "tipos-auditoria",
         "acciones",
         "preguntas",
-        "preguntas-poka-yoke",
       ].includes(selectedItemId)
     ) {
       setExpandedItems((p) => ({ ...p, configuracion: true }));
     }
+    if (
+      selectedItemId === "preguntas-poka-yoke" ||
+      selectedItemId === "tickets-procesos" ||
+      selectedItemId === "graficas-poka-yoke"
+    ) {
+      setExpandedItems((p) => ({ ...p, procesos: true }));
+    }
+    if (selectedItemId === "tickets-mantenimiento") {
+      setExpandedItems((p) => ({ ...p, mantenimiento: true }));
+    }
   }, [selectedItemId, router]);
 
   useEffect(() => {
-    if (!authorized || usuarioOk !== true) return;
-    if (isAdmin) return;
-    if (isAdminOnlyDashboardPath(pathname)) {
-      router.replace(NON_ADMIN_HOME);
-    }
-  }, [authorized, usuarioOk, isAdmin, pathname, router]);
+    if (!authorized) return;
+    const access = getCapAccessClient();
+    if (canAccessDashboardPath(pathname, access)) return;
+    const dest = resolveDeniedRedirect(pathname, access);
+    if (dest) router.replace(dest);
+  }, [authorized, pathname, router]);
 
   const handleItemClick = (item) => {
     if (item.hasSubmenu) {
@@ -332,7 +463,7 @@ function DashboardShell({ selectedItemId, children }) {
     );
   }
 
-  if (!usuarioOk && !isAdmin) {
+  if (!usuarioOk && !capAccess.bypassUsuarioCap) {
     return (
       <Box sx={{ minHeight: "100vh", bgcolor: BRAND.bg }}>
         <UsuarioBloqueadoModal open empId={empIdSesion} />
@@ -414,153 +545,204 @@ function DashboardShell({ selectedItemId, children }) {
         </Toolbar>
 
         <List sx={{ flex: 1, pt: 2, px: 1 }}>
-          {menuItems.map((item) => {
-            const Icon = item.icon;
-            const isExpanded = expandedItems[item.id];
-            const isSelected = item.hasSubmenu
-              ? item.submenu.some((s) => s.id === selectedItemId && !s.divider)
-              : selectedItemId === item.id ||
-                (item.id === "auditorias" &&
-                  selectedItemId === "mis-auditorias");
+          {menuGroups.map((group) => (
+            <Box key={group.id} sx={{ mb: 1 }}>
+              {group.label ? (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: "block",
+                    px: 1.5,
+                    py: 0.75,
+                    color: BRAND.muted,
+                    fontWeight: 800,
+                    letterSpacing: 0.4,
+                    textTransform: "uppercase",
+                    fontSize: "0.68rem",
+                  }}
+                >
+                  {group.label}
+                </Typography>
+              ) : null}
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isExpanded = expandedItems[item.id];
+                const isSelected = item.hasSubmenu
+                  ? item.submenu.some(
+                      (s) =>
+                        s.id === selectedItemId && !s.divider && !s.section,
+                    )
+                  : selectedItemId === item.id ||
+                    (item.id === "auditorias" &&
+                      selectedItemId === "mis-auditorias");
 
-            return (
-              <Box key={item.id}>
-                <ListItem disablePadding sx={{ mb: 0.5 }}>
-                  <ListItemButton
-                    onClick={() => handleItemClick(item)}
-                    sx={{
-                      borderRadius: 1,
-                      bgcolor: isSelected ? BRAND.primary : "transparent",
-                      "&:hover": {
-                        bgcolor: isSelected ? BRAND.primaryDark : BRAND.hover,
-                      },
-                    }}
-                  >
-                    <ListItemIcon
-                      sx={{
-                        minWidth: 40,
-                        color: isSelected ? "#fff" : BRAND.primaryLight,
-                      }}
-                    >
-                      <Icon />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={item.title}
-                      secondary={item.description}
-                      slotProps={{
-                        primary: {
-                          sx: {
-                            fontWeight: 600,
-                            color: isSelected ? "#fff" : BRAND.paper,
+                return (
+                  <Box key={item.id}>
+                    <ListItem disablePadding sx={{ mb: 0.5 }}>
+                      <ListItemButton
+                        onClick={() => handleItemClick(item)}
+                        sx={{
+                          borderRadius: 1,
+                          bgcolor: isSelected ? BRAND.primary : "transparent",
+                          "&:hover": {
+                            bgcolor: isSelected
+                              ? BRAND.primaryDark
+                              : BRAND.hover,
                           },
-                        },
-                        secondary: {
-                          sx: {
-                            fontSize: "0.72rem",
-                            color: isSelected
-                              ? "rgba(255,255,255,0.85)"
-                              : BRAND.muted,
-                          },
-                        },
-                      }}
-                    />
-                    {item.hasSubmenu &&
-                      (isExpanded ? (
-                        <ExpandLess
+                        }}
+                      >
+                        <ListItemIcon
                           sx={{
+                            minWidth: 40,
                             color: isSelected ? "#fff" : BRAND.primaryLight,
                           }}
-                        />
-                      ) : (
-                        <ExpandMore
-                          sx={{
-                            color: isSelected ? "#fff" : BRAND.primaryLight,
+                        >
+                          <Icon />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={item.title}
+                          secondary={item.description}
+                          slotProps={{
+                            primary: {
+                              sx: {
+                                fontWeight: 600,
+                                color: isSelected ? "#fff" : BRAND.paper,
+                              },
+                            },
+                            secondary: {
+                              sx: {
+                                fontSize: "0.72rem",
+                                color: isSelected
+                                  ? "rgba(255,255,255,0.85)"
+                                  : BRAND.muted,
+                              },
+                            },
                           }}
                         />
-                      ))}
-                  </ListItemButton>
-                </ListItem>
-
-                {item.hasSubmenu && (
-                  <Collapse in={isExpanded} unmountOnExit>
-                    <List disablePadding>
-                      {item.submenu.map((sub, subIdx) => {
-                        if (sub.divider) {
-                          return (
-                            <Box key={`sub-div-${subIdx}`} sx={{ px: 2, py: 0.75 }}>
-                              <Divider sx={{ borderColor: "rgba(255,255,255,0.12)" }} />
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  display: "block",
-                                  mt: 0.75,
-                                  px: 0.5,
-                                  color: BRAND.muted,
-                                  fontWeight: 700,
-                                  letterSpacing: 0.3,
-                                  textTransform: "uppercase",
-                                  fontSize: "0.65rem",
-                                }}
-                              >
-                                Poka Yoke
-                              </Typography>
-                            </Box>
-                          );
-                        }
-                        const SubIcon = sub.icon;
-                        const subSelected = selectedItemId === sub.id;
-                        return (
-                          <ListItem
-                            key={sub.id}
-                            disablePadding
-                            sx={{ pl: 2, mb: 0.5 }}
-                          >
-                            <ListItemButton
-                              onClick={() => handleSubmenuClick(sub)}
+                        {item.hasSubmenu &&
+                          (isExpanded ? (
+                            <ExpandLess
                               sx={{
-                                borderRadius: 1,
-                                bgcolor: subSelected
-                                  ? BRAND.primary
-                                  : "transparent",
-                                "&:hover": {
-                                  bgcolor: subSelected
-                                    ? BRAND.primaryDark
-                                    : BRAND.hover,
-                                },
+                                color: isSelected ? "#fff" : BRAND.primaryLight,
+                              }}
+                            />
+                          ) : (
+                            <ExpandMore
+                              sx={{
+                                color: isSelected ? "#fff" : BRAND.primaryLight,
+                              }}
+                            />
+                          ))}
+                      </ListItemButton>
+                    </ListItem>
+
+                    {item.hasSubmenu && (
+                      <Collapse in={isExpanded} unmountOnExit>
+                        <List disablePadding>
+                          {item.submenu.length === 0 ? (
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                display: "block",
+                                pl: 3,
+                                pr: 1,
+                                py: 1,
+                                color: BRAND.muted,
+                                fontSize: "0.75rem",
                               }}
                             >
-                              <ListItemIcon
-                                sx={{
-                                  minWidth: 32,
-                                  color: subSelected
-                                    ? "#fff"
-                                    : BRAND.primaryLight,
-                                }}
+                              Sin catálogos por ahora
+                            </Typography>
+                          ) : null}
+                          {item.submenu.map((sub, subIdx) => {
+                            if (sub.section || sub.divider) {
+                              const label = sub.section || "—";
+                              return (
+                                <Box
+                                  key={`sub-section-${subIdx}-${label}`}
+                                  sx={{ px: 2, py: 0.75 }}
+                                >
+                                  <Divider
+                                    sx={{
+                                      borderColor: "rgba(255,255,255,0.12)",
+                                    }}
+                                  />
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      display: "block",
+                                      mt: 0.75,
+                                      px: 0.5,
+                                      color: BRAND.muted,
+                                      fontWeight: 700,
+                                      letterSpacing: 0.3,
+                                      textTransform: "uppercase",
+                                      fontSize: "0.65rem",
+                                    }}
+                                  >
+                                    {label}
+                                  </Typography>
+                                </Box>
+                              );
+                            }
+                            const SubIcon = sub.icon;
+                            const subSelected = selectedItemId === sub.id;
+                            return (
+                              <ListItem
+                                key={sub.id}
+                                disablePadding
+                                sx={{ pl: 2, mb: 0.5 }}
                               >
-                                <SubIcon sx={{ fontSize: 20 }} />
-                              </ListItemIcon>
-                              <ListItemText
-                                primary={sub.title}
-                                slotProps={{
-                                  primary: {
-                                    sx: {
-                                      fontSize: "0.88rem",
-                                      fontWeight: subSelected ? 700 : 500,
-                                      color: subSelected ? "#fff" : BRAND.paper,
+                                <ListItemButton
+                                  onClick={() => handleSubmenuClick(sub)}
+                                  sx={{
+                                    borderRadius: 1,
+                                    bgcolor: subSelected
+                                      ? BRAND.primary
+                                      : "transparent",
+                                    "&:hover": {
+                                      bgcolor: subSelected
+                                        ? BRAND.primaryDark
+                                        : BRAND.hover,
                                     },
-                                  },
-                                }}
-                              />
-                            </ListItemButton>
-                          </ListItem>
-                        );
-                      })}
-                    </List>
-                  </Collapse>
-                )}
-              </Box>
-            );
-          })}
+                                  }}
+                                >
+                                  <ListItemIcon
+                                    sx={{
+                                      minWidth: 32,
+                                      color: subSelected
+                                        ? "#fff"
+                                        : BRAND.primaryLight,
+                                    }}
+                                  >
+                                    <SubIcon sx={{ fontSize: 20 }} />
+                                  </ListItemIcon>
+                                  <ListItemText
+                                    primary={sub.title}
+                                    slotProps={{
+                                      primary: {
+                                        sx: {
+                                          fontSize: "0.88rem",
+                                          fontWeight: subSelected ? 700 : 500,
+                                          color: subSelected
+                                            ? "#fff"
+                                            : BRAND.paper,
+                                        },
+                                      },
+                                    }}
+                                  />
+                                </ListItemButton>
+                              </ListItem>
+                            );
+                          })}
+                        </List>
+                      </Collapse>
+                    )}
+                  </Box>
+                );
+              })}
+            </Box>
+          ))}
         </List>
 
         <Divider sx={{ borderColor: BRAND.border }} />

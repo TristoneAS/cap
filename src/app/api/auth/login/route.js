@@ -1,6 +1,22 @@
 import { NextResponse } from "next/server";
 import { empleados } from "@/libs/empleados";
 import { isAuthResponseOk, mensajeErrorAuth } from "@/libs/auth_login";
+import {
+  buildCapAccess,
+  CAP_ROLE_GENERICO,
+  hasPrivilegedCapRole,
+  normalizeCapRolesFromAuth,
+} from "@/libs/cap_roles";
+
+const CAP_AUTH_PATH = process.env.AUTH_CAP_PATH || "/CAP/AUTHENTICATE";
+
+function normalizeAuthBaseUrl(url) {
+  return String(url ?? "").trim().replace(/\/+$/, "");
+}
+
+function resolveCapAuthServerUrl() {
+  return normalizeAuthBaseUrl(process.env.NEXT_PUBLIC_AUTH_SERVER_URL);
+}
 
 async function buscarEmpleadoPorAlias(username) {
   const [rows] = await empleados.query(
@@ -8,6 +24,35 @@ async function buscarEmpleadoPorAlias(username) {
     [username],
   );
   return rows[0] || null;
+}
+
+async function llamarAuthenticate(authUrl, path, username, password) {
+  const response = await fetch(`${authUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+    cache: "no-store",
+  });
+
+  let authData = {};
+  try {
+    authData = await response.json();
+  } catch {
+    authData = {};
+  }
+
+  return { response, authData };
+}
+
+function respuestaLoginOk(empleado, authData, capRoles) {
+  const capAccess = buildCapAccess(capRoles);
+  return NextResponse.json({
+    success: true,
+    auth: authData,
+    empleado,
+    capRoles,
+    capAccess,
+  });
 }
 
 export async function POST(request) {
@@ -23,36 +68,48 @@ export async function POST(request) {
       );
     }
 
-    const authUrl = process.env.NEXT_PUBLIC_AUTH_SERVER_URL;
-    if (!authUrl) {
+    const capAuthUrl = resolveCapAuthServerUrl();
+    if (!capAuthUrl) {
       return NextResponse.json(
         {
           success: false,
-          error: "Servidor de autenticación no configurado (.env.local)",
+          error: "Servidor CAP no configurado (NEXT_PUBLIC_AUTH_SERVER_URL)",
         },
         { status: 500 },
       );
     }
 
     let authData = {};
-    try {
-      const response = await fetch(`${authUrl}/SYSTEMVDOCS/AUTHENTICATE`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-        cache: "no-store",
-      });
+    let capRoles = [];
 
-      try {
-        authData = await response.json();
-      } catch {
-        authData = {};
-      }
+    try {
+      const { response, authData: capAuthData } = await llamarAuthenticate(
+        capAuthUrl,
+        CAP_AUTH_PATH,
+        username,
+        password,
+      );
+      authData = capAuthData;
 
       if (!isAuthResponseOk(response, authData)) {
         return NextResponse.json(
           { success: false, error: mensajeErrorAuth(authData) },
           { status: 401 },
+        );
+      }
+
+      capRoles = normalizeCapRolesFromAuth(authData);
+
+      const tienePrivilegio = hasPrivilegedCapRole(capRoles);
+      const esGenerico = capRoles.includes(CAP_ROLE_GENERICO);
+      if (!tienePrivilegio && !esGenerico) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "No tiene un rol CAP asignado. Se requiere CAP_Generico o un rol de área.",
+          },
+          { status: 403 },
         );
       }
     } catch (error) {
@@ -76,11 +133,7 @@ export async function POST(request) {
         );
       }
 
-      return NextResponse.json({
-        success: true,
-        auth: authData,
-        empleado,
-      });
+      return respuestaLoginOk(empleado, authData, capRoles);
     } catch (error) {
       console.error("Error consultando empleado:", error);
       return NextResponse.json(
