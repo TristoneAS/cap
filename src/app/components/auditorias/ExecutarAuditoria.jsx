@@ -297,11 +297,16 @@ function ExecutarAuditoria({ idAuditoria }) {
             )
           : [];
 
-      if (!payload.length && pokaExenta === "si" && !pokaPayload.length) {
-        setError("Responda al menos una pregunta LPA o confirme la exención Poka Yoke");
+      if (preguntas.length > 0 && !payload.length && pokaExenta === "si") {
+        setError("Responda las preguntas LPA de esta auditoría");
         return;
       }
-      if (pokaExenta === "no" && preguntasPoka.length > 0 && !pokaPayload.length && !payload.length) {
+      if (
+        pokaExenta === "no" &&
+        preguntasPoka.length > 0 &&
+        !pokaPayload.length &&
+        !payload.length
+      ) {
         setError("Responda preguntas LPA o del checklist Poka Yoke");
         return;
       }

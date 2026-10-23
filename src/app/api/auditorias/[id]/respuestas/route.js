@@ -161,7 +161,9 @@ export async function PUT(request, { params }) {
     const totalPreguntas = preguntas.length;
     const totalRespondidas = respondidas[0]?.total ?? 0;
     const pokaOk = await pokaCumpleParaCompletar(idAuditoria);
-    const lpaOk = totalPreguntas > 0 && totalRespondidas >= totalPreguntas;
+    /** Sin preguntas LPA configuradas: no bloquea el cierre (solo Poka / comentario). */
+    const lpaOk =
+      totalPreguntas === 0 || totalRespondidas >= totalPreguntas;
     const nuevoEstado =
       lpaOk && pokaOk
         ? "completada"
