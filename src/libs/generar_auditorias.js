@@ -54,6 +54,39 @@ function slotKey(slot) {
   return `${slot.sub.id_sub_area}|${slot.tipo.id_tipo_auditoria}|${slot.turno}`;
 }
 
+async function loadNivelRequeridoPorArea() {
+  try {
+    const [rows] = await capDb.query(
+      `SELECT id_area, id_nivel_usuario
+       FROM areas
+       WHERE estado = 'activo' AND id_nivel_usuario IS NOT NULL`,
+    );
+    return new Map(
+      rows.map((r) => [Number(r.id_area), Number(r.id_nivel_usuario)]),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+function usuariosParaArea(nivelUsers, idArea, areaNivelById) {
+  const areaNivel = areaNivelById.get(Number(idArea));
+  if (areaNivel == null) return nivelUsers;
+  return nivelUsers.filter(
+    (u) => Number(u.id_nivel_usuario) === Number(areaNivel),
+  );
+}
+
+function agruparSlotsPorArea(slots) {
+  const byArea = new Map();
+  for (const slot of slots) {
+    const idArea = Number(slot.sub.id_area);
+    if (!byArea.has(idArea)) byArea.set(idArea, []);
+    byArea.get(idArea).push(slot);
+  }
+  return byArea;
+}
+
 async function slotsExistentesPorPeriodo(periodo) {
   const [rows] = await capDb.query(
     `SELECT DISTINCT id_sub_area, id_tipo_auditoria, turno
@@ -165,15 +198,18 @@ export async function generarAuditoriasMes(
   }
 
   try {
+  const areaNivelById = await loadNivelRequeridoPorArea();
+
   const [combos] = await capDb.query(
-    `SELECT DISTINCT
+    `SELECT
         pa.id_area,
         pa.id_sub_area,
         p.id_tipo_auditoria,
         a.nombre AS area_nombre,
         sa.nombre AS sub_area_nombre,
         t.nombre AS tipo_nombre,
-        t.id_nivel_usuario
+        t.id_nivel_usuario,
+        COUNT(p.id_pregunta) AS num_preguntas
      FROM preguntas p
      INNER JOIN pregunta_alcance pa
        ON pa.id_pregunta = p.id_pregunta AND pa.estado = 'activo'
@@ -185,7 +221,10 @@ export async function generarAuditoriasMes(
        ON t.id_tipo_auditoria = p.id_tipo_auditoria AND t.estado = 'activo'
      INNER JOIN niveles_usuario nu
        ON nu.id_nivel_usuario = t.id_nivel_usuario AND nu.estado = 'activo'
-     WHERE p.estado = 'activo'`,
+     WHERE p.estado = 'activo'
+     GROUP BY pa.id_area, pa.id_sub_area, p.id_tipo_auditoria,
+              a.nombre, sa.nombre, t.nombre, t.id_nivel_usuario
+     HAVING COUNT(p.id_pregunta) > 0`,
   );
 
   if (!combos.length) {
@@ -260,6 +299,13 @@ export async function generarAuditoriasMes(
   const shuffledCombos = shuffle(combosConAuditor);
   const slots = [];
   for (const combo of shuffledCombos) {
+    const areaNivel = areaNivelById.get(Number(combo.id_area));
+    if (
+      areaNivel != null &&
+      Number(combo.id_nivel_usuario) !== Number(areaNivel)
+    ) {
+      continue;
+    }
     const turnos = turnosPorSubArea.get(Number(combo.id_sub_area)) || [];
     if (!turnos.length) {
       continue;
@@ -314,12 +360,26 @@ export async function generarAuditoriasMes(
       continue;
     }
 
-    const assignments = distribuirAsignaciones(slotsPendientes, nivelUsers);
-    const compartidasEnLote = slotsCompartidosEnAsignaciones(assignments);
+    const slotsPorArea = agruparSlotsPorArea(slotsPendientes);
+    const assignments = [];
 
-    if (nivelUsers.length > slotsPendientes.length) {
-      compartidas += nivelUsers.length - slotsPendientes.length;
+    for (const [idArea, areaSlots] of slotsPorArea) {
+      const candidatos = usuariosParaArea(nivelUsers, idArea, areaNivelById);
+      if (!candidatos.length) {
+        sinAuditor += areaSlots.length;
+        continue;
+      }
+      assignments.push(...distribuirAsignaciones(areaSlots, candidatos));
+      if (candidatos.length > areaSlots.length) {
+        compartidas += candidatos.length - areaSlots.length;
+      }
     }
+
+    if (!assignments.length) {
+      continue;
+    }
+
+    const compartidasEnLote = slotsCompartidosEnAsignaciones(assignments);
 
     for (const { slot, user } of assignments) {
       const sk = slotKey(slot);

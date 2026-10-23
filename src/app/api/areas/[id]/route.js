@@ -21,8 +21,19 @@ export async function PUT(request, { params }) {
     const body = await request.json();
     const nombre = String(body.nombre ?? "").trim();
     const descripcion = String(body.descripcion ?? "").trim() || null;
+    const idNivelRaw = body.id_nivel_usuario;
+    const id_nivel_usuario =
+      idNivelRaw === "" || idNivelRaw == null ? null : Number(idNivelRaw) || null;
 
     if (!nombre) return jsonError("El nombre es requerido", 400);
+
+    if (id_nivel_usuario != null) {
+      const [nivel] = await capDb.query(
+        "SELECT id_nivel_usuario FROM niveles_usuario WHERE id_nivel_usuario = ? AND estado = 'activo'",
+        [id_nivel_usuario],
+      );
+      if (!nivel.length) return jsonError("Nivel de auditor no válido", 400);
+    }
 
     const [existing] = await capDb.query(
       "SELECT id_area FROM areas WHERE id_area = ? AND estado = 'activo'",
@@ -37,11 +48,14 @@ export async function PUT(request, { params }) {
     if (dup.length) return jsonError("Ya existe otra área con ese nombre", 409);
 
     await capDb.query(
-      "UPDATE areas SET nombre = ?, descripcion = ? WHERE id_area = ?",
-      [nombre, descripcion, id],
+      "UPDATE areas SET nombre = ?, descripcion = ?, id_nivel_usuario = ? WHERE id_area = ?",
+      [nombre, descripcion, id_nivel_usuario, id],
     );
 
-    return jsonOk({ id_area: Number(id), nombre, descripcion }, "Área actualizada");
+    return jsonOk(
+      { id_area: Number(id), nombre, descripcion, id_nivel_usuario },
+      "Área actualizada",
+    );
   } catch (error) {
     return jsonError("Error al actualizar área", 500, error.message);
   }
