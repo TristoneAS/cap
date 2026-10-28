@@ -40,6 +40,7 @@ import {
   PrecisionManufacturing,
   ConfirmationNumber,
   BarChart,
+  UploadFile,
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import {
@@ -293,6 +294,18 @@ function buildMenuGroups(access) {
               icon: VerifiedUser,
               route: "/dashboard/catalogos/preguntas-poka-yoke",
             },
+            {
+              id: "procesos-clientes",
+              title: "Clientes",
+              icon: Business,
+              route: "/dashboard/procesos/clientes",
+            },
+            {
+              id: "adjuntar-listado-poka-yoke",
+              title: "Adjuntar listado Poka Yoke",
+              icon: UploadFile,
+              route: "/dashboard/procesos/adjuntar-listado-poka-yoke",
+            },
           ],
         },
       ],
@@ -413,7 +426,9 @@ function DashboardShell({ selectedItemId, children }) {
     if (
       selectedItemId === "preguntas-poka-yoke" ||
       selectedItemId === "tickets-procesos" ||
-      selectedItemId === "graficas-poka-yoke"
+      selectedItemId === "graficas-poka-yoke" ||
+      selectedItemId === "adjuntar-listado-poka-yoke" ||
+      selectedItemId === "procesos-clientes"
     ) {
       setExpandedItems((p) => ({ ...p, procesos: true }));
     }

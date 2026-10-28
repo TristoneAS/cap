@@ -213,6 +213,7 @@ function SeguimientoAuditorias() {
       .trim()
       .toLowerCase();
     return rows.filter((r) => {
+      if (String(r.estado).toLowerCase() === "cancelada") return false;
       if (filtroArea && String(r.id_area) !== String(filtroArea)) return false;
       if (filtroSubArea && String(r.id_sub_area) !== String(filtroSubArea)) {
         return false;
