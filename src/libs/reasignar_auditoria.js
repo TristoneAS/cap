@@ -15,6 +15,60 @@ const AUDITORIA_SELECT = `
   WHERE aud.id_auditoria = ?
 `;
 
+/** Borra respuestas, Poka y la fila de auditorías (libera el slot del mes). */
+export async function deleteAuditoriaRelacionada(conn, idAuditoria) {
+  await conn.query("DELETE FROM ticket_mantenimiento_items WHERE id_auditoria = ?", [
+    idAuditoria,
+  ]);
+  await conn.query("DELETE FROM auditoria_poka_yoke_respuestas WHERE id_auditoria = ?", [
+    idAuditoria,
+  ]);
+  await conn.query("DELETE FROM auditoria_poka_yoke WHERE id_auditoria = ?", [idAuditoria]);
+  await conn.query("DELETE FROM auditoria_respuestas WHERE id_auditoria = ?", [idAuditoria]);
+  await conn.query("DELETE FROM auditorias WHERE id_auditoria = ?", [idAuditoria]);
+}
+
+/**
+ * Elimina la auditoría por completo. Deja de contar en seguimiento, panel y eficiencia del mes.
+ * Solo uso administrativo.
+ */
+export async function eliminarAuditoria(idAuditoria, db = capDb) {
+  const [auditorias] = await db.query(AUDITORIA_SELECT, [idAuditoria]);
+  if (!auditorias.length) {
+    return { ok: false, status: 404, error: "Auditoría no encontrada" };
+  }
+
+  const aud = auditorias[0];
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    await deleteAuditoriaRelacionada(conn, idAuditoria);
+    await conn.commit();
+
+    return {
+      ok: true,
+      status: 200,
+      data: {
+        id_auditoria: Number(idAuditoria),
+        emp_id: aud.emp_id,
+        emp_nombre: aud.emp_nombre,
+        periodo_mes: aud.periodo_mes,
+        area_nombre: aud.area_nombre,
+        sub_area_nombre: aud.sub_area_nombre,
+        tipo_nombre: aud.tipo_nombre,
+        turno: aud.turno,
+        estado: aud.estado,
+      },
+      message: `Auditoría eliminada (${aud.emp_nombre} · ${aud.area_nombre} · ${aud.sub_area_nombre}). Ya no cuenta en reportes del periodo.`,
+    };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
 async function contarRespuestas(db, idAuditoria) {
   const [rows] = await db.query(
     `SELECT
@@ -157,14 +211,7 @@ export async function reasignarAuditoria(idAuditoria, nuevoSlot, db = capDb) {
   try {
     await conn.beginTransaction();
 
-    await conn.query("DELETE FROM auditoria_poka_yoke_respuestas WHERE id_auditoria = ?", [
-      idAuditoria,
-    ]);
-    await conn.query("DELETE FROM auditoria_poka_yoke WHERE id_auditoria = ?", [idAuditoria]);
-    await conn.query("DELETE FROM auditoria_respuestas WHERE id_auditoria = ?", [
-      idAuditoria,
-    ]);
-    await conn.query("DELETE FROM auditorias WHERE id_auditoria = ?", [idAuditoria]);
+    await deleteAuditoriaRelacionada(conn, idAuditoria);
 
     const [insert] = await conn.query(
       `INSERT INTO auditorias

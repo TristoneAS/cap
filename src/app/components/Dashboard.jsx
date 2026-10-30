@@ -832,7 +832,7 @@ function Dashboard() {
   const [filtroArea, setFiltroArea] = useState("");
   const [filtroSubArea, setFiltroSubArea] = useState("");
   const [anio, setAnio] = useState(actual.anio);
-  const [mes, setMes] = useState("");
+  const [mes, setMes] = useState(actual.mes);
   const [loading, setLoading] = useState(true);
   const [ncItems, setNcItems] = useState([]);
   const [ncTotal, setNcTotal] = useState(0);
@@ -855,7 +855,7 @@ function Dashboard() {
   const [loadingPokaMagico, setLoadingPokaMagico] = useState(false);
 
   const anios = useMemo(() => aniosDisponibles(actual.anio), [actual.anio]);
-  const filtrosPeriodoActivos = mes !== "" || anio !== actual.anio;
+  const filtrosPeriodoActivos = mes !== actual.mes || anio !== actual.anio;
 
   const irASeguimiento = useCallback(
     (entry) => {
@@ -1328,7 +1328,7 @@ function Dashboard() {
 
   const limpiarTodo = () => {
     setAnio(actual.anio);
-    setMes("");
+    setMes(actual.mes);
     setFiltroArea("");
     setFiltroSubArea("");
     setDrillArea(null);

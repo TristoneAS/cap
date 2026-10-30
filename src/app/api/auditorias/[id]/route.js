@@ -13,6 +13,7 @@ import {
 } from "@/libs/auditoria_access";
 import { buildPokaChecklist } from "@/libs/poka_yoke_helpers";
 import { POKA_EXENTA_PREGUNTA_TEXTO } from "@/libs/poka_yoke_constants";
+import { eliminarAuditoria } from "@/libs/reasignar_auditoria";
 
 const AUDITORIA_SELECT = `
   SELECT aud.id_auditoria, aud.id_area, aud.id_sub_area, aud.id_tipo_auditoria,
@@ -138,5 +139,25 @@ export async function GET(request, { params }) {
     });
   } catch (error) {
     return jsonError("Error al consultar auditoría", 500, error.message);
+  }
+}
+
+export async function DELETE(request, { params }) {
+  try {
+    const id = parseId(await params, "id");
+    const { searchParams } = new URL(request.url);
+    const isAdmin = parseIsAdminFlag(searchParams);
+    if (!isAdmin) {
+      return jsonError("Solo un administrador puede eliminar auditorías", 403);
+    }
+
+    const result = await eliminarAuditoria(id);
+    if (!result.ok) {
+      return jsonError(result.error, result.status || 400, result.data);
+    }
+
+    return jsonOk(result.data, result.message);
+  } catch (error) {
+    return jsonError("Error al eliminar auditoría", 500, error.message);
   }
 }

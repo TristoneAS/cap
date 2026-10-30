@@ -23,7 +23,14 @@ import {
   DialogContent,
   DialogActions,
 } from "@mui/material";
-import { Visibility, ArrowBack, FilterAltOff, EditNote, SwapHoriz } from "@mui/icons-material";
+import {
+  Visibility,
+  ArrowBack,
+  FilterAltOff,
+  EditNote,
+  SwapHoriz,
+  Delete,
+} from "@mui/icons-material";
 import DashboardShell from "@/app/components/DashboardShell";
 import { isAdminClient } from "@/libs/dashboard_access";
 import { BRAND } from "@/libs/theme_palette";
@@ -99,6 +106,8 @@ function SeguimientoAuditorias() {
   const [reasignarSaving, setReasignarSaving] = useState(false);
   const [reasignarError, setReasignarError] = useState("");
   const [reasignarSuccess, setReasignarSuccess] = useState("");
+  const [eliminarSuccess, setEliminarSuccess] = useState("");
+  const [eliminandoId, setEliminandoId] = useState(null);
 
   const anios = useMemo(() => aniosDisponibles(actual.anio), [actual.anio]);
   const filtrosActivos =
@@ -368,6 +377,41 @@ function SeguimientoAuditorias() {
     Number(r.respondidas || 0) === 0 &&
     r.estado !== "completada" &&
     r.estado !== "cancelada";
+
+  const handleEliminar = async (row) => {
+    const msg =
+      `¿Eliminar esta auditoría del mes?\n\n` +
+      `${row.emp_nombre} (${row.emp_id})\n` +
+      `${row.area_nombre} · ${row.sub_area_nombre} · Turno ${row.turno} · ${row.tipo_nombre}\n` +
+      `Periodo ${row.periodo_mes} · Estado: ${row.estado}\n\n` +
+      `Se borrará de la base de datos (incluye respuestas si las hay) y dejará de contar en avance, eficiencia y gráficas del panel.`;
+
+    if (!confirm(msg)) return;
+
+    setEliminandoId(row.id_auditoria);
+    setError("");
+    setEliminarSuccess("");
+    try {
+      const res = await fetch(
+        `/api/auditorias/${row.id_auditoria}?is_admin=true`,
+        { method: "DELETE" },
+      );
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.error || "No se pudo eliminar la auditoría");
+        return;
+      }
+      setEliminarSuccess(data.message || "Auditoría eliminada");
+      if (selectedId === row.id_auditoria) {
+        cerrarDetalle();
+      }
+      load();
+    } catch {
+      setError("Error de conexión al eliminar");
+    } finally {
+      setEliminandoId(null);
+    }
+  };
 
   if (selectedId) {
     const aud = detalle?.auditoria;
@@ -639,6 +683,11 @@ function SeguimientoAuditorias() {
             {reasignarSuccess}
           </Alert>
         )}
+        {eliminarSuccess && (
+          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setEliminarSuccess("")}>
+            {eliminarSuccess}
+          </Alert>
+        )}
 
         <LeyendaAuditorias />
 
@@ -805,6 +854,18 @@ function SeguimientoAuditorias() {
                                   }}
                                 >
                                   Reasignar
+                                </Button>
+                              )}
+                              {isAdmin && (
+                                <Button
+                                  size="small"
+                                  color="error"
+                                  startIcon={<Delete />}
+                                  disabled={eliminandoId === r.id_auditoria}
+                                  onClick={() => handleEliminar(r)}
+                                  sx={{ textTransform: "none", fontWeight: 700 }}
+                                >
+                                  Eliminar
                                 </Button>
                               )}
                             </Box>
