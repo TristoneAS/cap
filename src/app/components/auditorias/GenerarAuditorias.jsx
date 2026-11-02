@@ -394,8 +394,10 @@ function GenerarAuditorias() {
         <Typography variant="body2" sx={{ color: BRAND.muted, mb: 3 }}>
           Genera solo combinaciones que existen en <strong>Preguntas</strong> (área +
           sub área + tipo). Por cada combinación crea una auditoría por cada{" "}
-          <strong>turno asignado a la sub área</strong>. Si hay más usuarios que áreas, se reparten para que{" "}
-          <strong>todos auditen al menos una</strong> (algunas áreas compartidas).
+          <strong>turno asignado a la sub área</strong>. Cada usuario activo recibe{" "}
+          <strong>exactamente una auditoría en el mes</strong> (sub área/tipo/turno según su nivel).
+          Si hay más usuarios que slots, se reparten <strong>parejo</strong> (p. ej. 100 personas y 50
+          slots → 2 auditores por slot, sin dejar unos en 3 y otros en 1).
           Solo se puede generar <strong>una vez por mes</strong>. Vencimiento: día{" "}
           <strong>25</strong>. El día <strong>1</strong> también puede ejecutarse al
           entrar al sistema.

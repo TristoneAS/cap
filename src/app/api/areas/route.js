@@ -15,7 +15,15 @@ export async function GET() {
     );
     return jsonOk(rows);
   } catch (error) {
-    return jsonError("Error al consultar áreas", 500, error.message);
+    const msg = String(error.message || "");
+    if (msg.includes("id_nivel_usuario")) {
+      return jsonError(
+        "Falta la columna id_nivel_usuario en areas. Ejecute en MySQL la migración database/migrations/025_areas_nivel_auditor.sql (o el ALTER del mensaje de detalle).",
+        500,
+        msg,
+      );
+    }
+    return jsonError("Error al consultar áreas", 500, msg);
   }
 }
 

@@ -14,41 +14,6 @@ function shuffle(arr) {
   return a;
 }
 
-function distribuirAsignaciones(slots, usuarios) {
-  if (!slots.length || !usuarios.length) return [];
-
-  const shuffledSlots = shuffle(slots);
-  const shuffledUsers = shuffle(usuarios);
-  const assignments = [];
-
-  if (shuffledSlots.length >= shuffledUsers.length) {
-    // Más slots que usuarios: reparto round-robin (todos auditan al menos un área).
-    for (let i = 0; i < shuffledSlots.length; i += 1) {
-      assignments.push({
-        slot: shuffledSlots[i],
-        user: shuffledUsers[i % shuffledUsers.length],
-      });
-    }
-  } else {
-    // Más usuarios que slots: primero uno por slot, luego compartidas (todos auditan al menos una).
-    for (let i = 0; i < shuffledSlots.length; i += 1) {
-      assignments.push({
-        slot: shuffledSlots[i],
-        user: shuffledUsers[i],
-      });
-    }
-    const sobrantes = shuffledUsers.slice(shuffledSlots.length);
-    for (let i = 0; i < sobrantes.length; i += 1) {
-      assignments.push({
-        slot: shuffledSlots[i % shuffledSlots.length],
-        user: sobrantes[i],
-      });
-    }
-  }
-
-  return assignments;
-}
-
 /** Clave única de slot: sub área + tipo + turno (sin auditor). */
 function slotKey(slot) {
   return `${slot.sub.id_sub_area}|${slot.tipo.id_tipo_auditoria}|${slot.turno}`;
@@ -69,45 +34,94 @@ async function loadNivelRequeridoPorArea() {
   }
 }
 
-function usuariosParaArea(nivelUsers, idArea, areaNivelById) {
-  const areaNivel = areaNivelById.get(Number(idArea));
-  if (areaNivel == null) return nivelUsers;
-  return nivelUsers.filter(
-    (u) => Number(u.id_nivel_usuario) === Number(areaNivel),
-  );
-}
-
-function agruparSlotsPorArea(slots) {
-  const byArea = new Map();
-  for (const slot of slots) {
-    const idArea = Number(slot.sub.id_area);
-    if (!byArea.has(idArea)) byArea.set(idArea, []);
-    byArea.get(idArea).push(slot);
+function slotValidoParaUsuario(slot, user, areaNivelById) {
+  if (String(slot.id_nivel_usuario) !== String(user.id_nivel_usuario)) {
+    return false;
   }
-  return byArea;
+  const areaNivel = areaNivelById.get(Number(slot.sub.id_area));
+  if (areaNivel != null && Number(user.id_nivel_usuario) !== Number(areaNivel)) {
+    return false;
+  }
+  return true;
 }
 
-async function slotsExistentesPorPeriodo(periodo) {
+/**
+ * Una auditoría por usuario en el mes.
+ * Si hay más usuarios que slots, reparte lo más parejo posible (p. ej. 100 usuarios / 50 slots → 2 por slot).
+ */
+function asignarUnaAuditoriaPorUsuario(usuarios, slots, areaNivelById) {
+  if (!usuarios.length || !slots.length) return [];
+
+  const slotsShuffled = shuffle(slots);
+  const slotUseCount = new Map();
+  for (const s of slotsShuffled) {
+    slotUseCount.set(slotKey(s), 0);
+  }
+
+  // Primero quienes tienen menos slots válidos (evita amontonar al final en pocos slots).
+  const users = shuffle(usuarios)
+    .map((user) => ({
+      user,
+      validCount: slotsShuffled.filter((s) =>
+        slotValidoParaUsuario(s, user, areaNivelById),
+      ).length,
+    }))
+    .sort((a, b) => a.validCount - b.validCount)
+    .map((row) => row.user);
+
+  const assignments = [];
+
+  for (const user of users) {
+    const candidatos = slotsShuffled.filter((s) =>
+      slotValidoParaUsuario(s, user, areaNivelById),
+    );
+    if (!candidatos.length) continue;
+
+    let minUse = Infinity;
+    for (const s of candidatos) {
+      const c = slotUseCount.get(slotKey(s)) || 0;
+      if (c < minUse) minUse = c;
+    }
+
+    const best = candidatos.filter(
+      (s) => (slotUseCount.get(slotKey(s)) || 0) === minUse,
+    );
+    const slot = best[Math.floor(Math.random() * best.length)];
+
+    assignments.push({ slot, user });
+    const sk = slotKey(slot);
+    slotUseCount.set(sk, (slotUseCount.get(sk) || 0) + 1);
+  }
+
+  return assignments;
+}
+
+async function empIdsConAuditoriaEnPeriodo(periodo) {
   const [rows] = await capDb.query(
-    `SELECT DISTINCT id_sub_area, id_tipo_auditoria, turno
-     FROM auditorias WHERE periodo_mes = ?`,
+    `SELECT DISTINCT emp_id FROM auditorias WHERE periodo_mes = ?`,
     [periodo],
   );
-  return new Set(
-    rows.map((r) => `${r.id_sub_area}|${r.id_tipo_auditoria}|${r.turno}`),
-  );
+  return new Set(rows.map((r) => String(r.emp_id).trim()));
 }
 
-/** Slots con más de un auditor en el mismo lote (compartidas). */
-function slotsCompartidosEnAsignaciones(assignments) {
+function resumenRepartoSlots(assignments) {
   const counts = new Map();
   for (const { slot } of assignments) {
     const k = slotKey(slot);
     counts.set(k, (counts.get(k) || 0) + 1);
   }
-  return new Set(
-    [...counts.entries()].filter(([, n]) => n > 1).map(([k]) => k),
-  );
+  const valores = [...counts.values()];
+  if (!valores.length) {
+    return { slots_con_auditor: 0, min_por_slot: 0, max_por_slot: 0, slots_compartidos: 0 };
+  }
+  const min = Math.min(...valores);
+  const max = Math.max(...valores);
+  return {
+    slots_con_auditor: valores.length,
+    min_por_slot: min,
+    max_por_slot: max,
+    slots_compartidos: valores.filter((n) => n > 1).length,
+  };
 }
 
 async function resumenGeneracionPeriodo(periodo) {
@@ -329,104 +343,65 @@ export async function generarAuditoriasMes(
     }
   }
 
-  const slotsPorNivel = slots.reduce((acc, slot) => {
-    const key = String(slot.id_nivel_usuario);
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(slot);
-    return acc;
-  }, {});
-
   const fechaVencimiento = fechaVencimientoPeriodo(periodo);
-  const slotsOcupados = await slotsExistentesPorPeriodo(periodo);
+  const yaConAuditoria = await empIdsConAuditoriaEnPeriodo(periodo);
+  const usuariosPendientes = empleadosList.filter(
+    (u) => !yaConAuditoria.has(String(u.emp_id).trim()),
+  );
+
   let creadas = 0;
-  let omitidas = 0;
-  let sinAuditor = 0;
+  let omitidas = empleadosList.length - usuariosPendientes.length;
+  let sinSlot = 0;
   let compartidas = 0;
   const nuevasPorUsuario = new Map();
 
-  for (const idNivel of Object.keys(slotsPorNivel)) {
-    const nivelSlots = slotsPorNivel[idNivel];
-    const nivelUsers = usuariosPorNivel[idNivel] || [];
+  const assignments = asignarUnaAuditoriaPorUsuario(
+    usuariosPendientes,
+    slots,
+    areaNivelById,
+  );
+  sinSlot = usuariosPendientes.length - assignments.length;
+  const reparto = resumenRepartoSlots(assignments);
+  compartidas = reparto.slots_compartidos;
 
-    if (!nivelUsers.length) {
-      sinAuditor += nivelSlots.length;
-      continue;
-    }
+  for (const { slot, user } of assignments) {
+    const empNombre = user.emp_nombre || user.emp_alias || String(user.emp_id);
+    const empId = String(user.emp_id).trim();
 
-    const slotsPendientes = nivelSlots.filter((s) => !slotsOcupados.has(slotKey(s)));
-    omitidas += nivelSlots.length - slotsPendientes.length;
-
-    if (!slotsPendientes.length) {
-      continue;
-    }
-
-    const slotsPorArea = agruparSlotsPorArea(slotsPendientes);
-    const assignments = [];
-
-    for (const [idArea, areaSlots] of slotsPorArea) {
-      const candidatos = usuariosParaArea(nivelUsers, idArea, areaNivelById);
-      if (!candidatos.length) {
-        sinAuditor += areaSlots.length;
-        continue;
-      }
-      assignments.push(...distribuirAsignaciones(areaSlots, candidatos));
-      if (candidatos.length > areaSlots.length) {
-        compartidas += candidatos.length - areaSlots.length;
-      }
-    }
-
-    if (!assignments.length) {
-      continue;
-    }
-
-    const compartidasEnLote = slotsCompartidosEnAsignaciones(assignments);
-
-    for (const { slot, user } of assignments) {
-      const sk = slotKey(slot);
-      if (slotsOcupados.has(sk) && !compartidasEnLote.has(sk)) {
-        omitidas += 1;
-        continue;
-      }
-
-      const empNombre = user.emp_nombre || user.emp_alias || String(user.emp_id);
-
-      try {
-        const [result] = await capDb.query(
-          `INSERT INTO auditorias
-           (id_area, id_sub_area, id_tipo_auditoria, emp_id, emp_nombre, periodo_mes, turno, fecha_programada)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            slot.sub.id_area,
-            slot.sub.id_sub_area,
-            slot.tipo.id_tipo_auditoria,
-            String(user.emp_id),
-            empNombre,
-            periodo,
-            slot.turno,
-            fechaVencimiento,
-          ],
-        );
-        if (result.affectedRows) {
-          creadas += 1;
-          slotsOcupados.add(sk);
-          const empId = String(user.emp_id);
-          if (!nuevasPorUsuario.has(empId)) {
-            nuevasPorUsuario.set(empId, {
-              emp_id: empId,
-              nombre: empNombre,
-              auditorias: [],
-            });
-          }
-          nuevasPorUsuario.get(empId).auditorias.push({
-            area_nombre: slot.sub.area_nombre,
-            sub_area_nombre: slot.sub.sub_area_nombre,
-            turno: slot.turno,
+    try {
+      const [result] = await capDb.query(
+        `INSERT INTO auditorias
+         (id_area, id_sub_area, id_tipo_auditoria, emp_id, emp_nombre, periodo_mes, turno, fecha_programada)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          slot.sub.id_area,
+          slot.sub.id_sub_area,
+          slot.tipo.id_tipo_auditoria,
+          empId,
+          empNombre,
+          periodo,
+          slot.turno,
+          fechaVencimiento,
+        ],
+      );
+      if (result.affectedRows) {
+        creadas += 1;
+        if (!nuevasPorUsuario.has(empId)) {
+          nuevasPorUsuario.set(empId, {
+            emp_id: empId,
+            nombre: empNombre,
+            auditorias: [],
           });
         }
-      } catch (err) {
-        if (err.code === "ER_DUP_ENTRY") omitidas += 1;
-        else throw err;
+        nuevasPorUsuario.get(empId).auditorias.push({
+          area_nombre: slot.sub.area_nombre,
+          sub_area_nombre: slot.sub.sub_area_nombre,
+          turno: slot.turno,
+        });
       }
+    } catch (err) {
+      if (err.code === "ER_DUP_ENTRY") omitidas += 1;
+      else throw err;
     }
   }
 
@@ -434,13 +409,14 @@ export async function generarAuditoriasMes(
     return {
       ok: false,
       status: 400,
-      error: `No se generó ninguna auditoría. Slots: ${slots.length}, sin auditor de nivel: ${sinAuditor}. Revise preguntas, turnos por sub área, tipos/usuarios y sus niveles.`,
+      error: `No se generó ninguna auditoría. Usuarios pendientes: ${usuariosPendientes.length}, slots: ${slots.length}, sin slot compatible: ${sinSlot}. Revise preguntas, turnos, tipos/usuarios y niveles por área.`,
       data: {
         periodo_mes: periodo,
         creadas,
         omitidas,
-        sin_auditor_nivel: sinAuditor,
+        sin_slot: sinSlot,
         total_slots: slots.length,
+        usuarios_pendientes: usuariosPendientes.length,
       },
     };
   }
@@ -478,8 +454,10 @@ export async function generarAuditoriasMes(
     periodo_mes: periodo,
     creadas,
     omitidas,
-    sin_auditor_nivel: sinAuditor,
+    sin_slot: sinSlot,
+    usuarios_asignados: creadas,
     compartidas,
+    reparto_slots: reparto,
     total_combos: combosConAuditor.length,
     total_combos_sin_auditor: combosSinAuditor,
     total_slots: slots.length,
@@ -492,11 +470,17 @@ export async function generarAuditoriasMes(
     ya_generado: true,
   };
 
-  const message = `Se generaron ${creadas} auditorías (${turnosUsados.length ? `turnos ${turnosUsados.join(", ")}` : "sin turnos"}) para ${periodo}${
-    omitidas ? `, ${omitidas} omitidas (ya existían)` : ""
-  }${compartidas ? ` (${compartidas} compartidas por sobrar usuarios)` : ""}${
-    sinAuditor ? ` (${sinAuditor} sin auditor del nivel requerido)` : ""
-  }${correos.correos_enviados ? `. ${correos.correos_enviados} correo(s) enviado(s)` : ""}`;
+  const message = `Se generaron ${creadas} auditorías (1 por usuario) para ${periodo}${
+    turnosUsados.length ? ` · turnos ${turnosUsados.join(", ")}` : ""
+  }${omitidas ? ` · ${omitidas} usuario(s) ya tenían auditoría en el mes` : ""}${
+    sinSlot ? ` · ${sinSlot} sin slot compatible (nivel/área)` : ""
+  }${
+    reparto.slots_con_auditor
+      ? ` · reparto por slot: mín ${reparto.min_por_slot}, máx ${reparto.max_por_slot} (ideal: diferencia ≤ 1)`
+      : ""
+  }${
+    correos.correos_enviados ? ` · ${correos.correos_enviados} correo(s) enviado(s)` : ""
+  }`;
 
   return { ok: true, status: 200, data, message };
   } catch (error) {
