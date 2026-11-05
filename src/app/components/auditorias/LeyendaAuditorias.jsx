@@ -23,8 +23,8 @@ export default function LeyendaAuditorias() {
         display: "flex",
         flexWrap: "wrap",
         alignItems: "center",
-        gap: { xs: 1.25, sm: 2 },
-        mb: 1.5,
+        gap: { xs: 0.75, sm: 1.25 },
+        mb: 0.75,
       }}
     >
       {ITEMS.map((item) => (
@@ -43,7 +43,7 @@ export default function LeyendaAuditorias() {
           />
           <Typography
             variant="caption"
-            sx={{ color: item.color, fontWeight: 700 }}
+            sx={{ color: item.color, fontWeight: 700, fontSize: "0.68rem", lineHeight: 1.2 }}
           >
             {item.label}
           </Typography>

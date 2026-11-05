@@ -64,43 +64,67 @@ import {
 } from "@/libs/table_ui";
 import { exportVistaMagicaExcel } from "@/libs/export_vista_magica_excel";
 
-const DASHBOARD_VIEWPORT_OFFSET = "88px"; // Toolbar (56) + padding main arriba/abajo (32)
+const compactSelectSx = {
+  "& .MuiInputBase-root": {
+    height: 32,
+    fontSize: "0.8125rem",
+  },
+  "& .MuiInputLabel-root": {
+    fontSize: "0.75rem",
+  },
+  "& .MuiSelect-select": {
+    py: 0.5,
+  },
+};
+
+const compactBtnSx = {
+  textTransform: "none",
+  minHeight: 30,
+  py: 0.25,
+  px: 1,
+  fontSize: "0.8125rem",
+  "& .MuiButton-startIcon": {
+    mr: 0.5,
+    "& .MuiSvgIcon-root": { fontSize: 16 },
+  },
+};
 
 function StatCard({ icon: Icon, label, value, color }) {
   return (
-    <Paper
+    <Box
       sx={{
-        px: 1.5,
-        py: 1,
+        px: 1,
+        py: 0.35,
         borderRadius: 1,
         border: `1px solid ${BRAND.border}`,
-        height: "100%",
+        bgcolor: BRAND.paper,
         display: "flex",
         alignItems: "center",
-        gap: 1,
+        gap: 0.75,
+        minHeight: 36,
       }}
     >
       <Box
         sx={{
-          width: 32,
-          height: 32,
-          borderRadius: 1,
+          width: 24,
+          height: 24,
+          borderRadius: 0.75,
           bgcolor: `${color}18`,
           color,
           display: "grid",
           placeItems: "center",
           flexShrink: 0,
-          "& .MuiSvgIcon-root": { fontSize: 18 },
+          "& .MuiSvgIcon-root": { fontSize: 15 },
         }}
       >
         <Icon />
       </Box>
       <Typography
-        variant="caption"
         sx={{
           color: BRAND.muted,
           fontWeight: 600,
-          lineHeight: 1.2,
+          fontSize: "0.72rem",
+          lineHeight: 1.15,
           flex: 1,
           minWidth: 0,
         }}
@@ -110,17 +134,15 @@ function StatCard({ icon: Icon, label, value, color }) {
       <Typography
         sx={{
           fontWeight: 800,
-          fontSize: "1.35rem",
+          fontSize: "1.05rem",
           color: BRAND.ink,
           lineHeight: 1,
-          textAlign: "center",
-          minWidth: 40,
           flexShrink: 0,
         }}
       >
         {value}
       </Typography>
-    </Paper>
+    </Box>
   );
 }
 
@@ -1360,12 +1382,10 @@ function Dashboard() {
           maxWidth: PAGE_MAX_WIDTH,
           mx: "auto",
           width: "100%",
+          minWidth: 0,
           display: "flex",
           flexDirection: "column",
-          height: { md: `calc(100vh - ${DASHBOARD_VIEWPORT_OFFSET})` },
-          maxHeight: { md: `calc(100vh - ${DASHBOARD_VIEWPORT_OFFSET})` },
-          overflow: { md: "hidden" },
-          minHeight: 0,
+          pb: 2,
         }}
       >
         {loading ? (
@@ -1377,55 +1397,66 @@ function Dashboard() {
             sx={{
               display: "flex",
               flexDirection: "column",
-              flex: 1,
-              minHeight: 0,
-              overflow: { md: "hidden" },
-              gap: 0.75,
+              gap: 0.5,
             }}
           >
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", sm: "repeat(3, 1fr)" },
-                gap: 0.75,
-                flexShrink: 0,
-              }}
-            >
-              <StatCard
-                icon={Business}
-                label="Áreas activas"
-                value={stats.areas}
-                color={BRAND.primary}
-              />
-              <StatCard
-                icon={FactCheck}
-                label={mes ? "Auditorías del mes" : "Auditorías del periodo"}
-                value={stats.auditorias}
-                color={BRAND.primaryDark}
-              />
-              <StatCard
-                icon={Assignment}
-                label="Pendientes"
-                value={stats.pendientes}
-                color={BRAND.primaryLight}
-              />
-            </Box>
-
             <Paper
               sx={{
-                p: 1,
+                p: 0.75,
                 borderRadius: 1,
                 border: `1px solid ${BRAND.border}`,
                 display: "flex",
-                flexWrap: "wrap",
-                gap: 1,
-                alignItems: "center",
-                flexShrink: 0,
+                flexDirection: "column",
+                gap: 0.5,
               }}
             >
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(3, minmax(0, 1fr))",
+                  },
+                  gap: 0.5,
+                }}
+              >
+                <StatCard
+                  icon={Business}
+                  label="Áreas activas"
+                  value={stats.areas}
+                  color={BRAND.primary}
+                />
+                <StatCard
+                  icon={FactCheck}
+                  label={mes ? "Auditorías del mes" : "Auditorías del periodo"}
+                  value={stats.auditorias}
+                  color={BRAND.primaryDark}
+                />
+                <StatCard
+                  icon={Assignment}
+                  label="Pendientes"
+                  value={stats.pendientes}
+                  color={BRAND.primaryLight}
+                />
+              </Box>
+
+              <Box
+                sx={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 0.5,
+                  alignItems: "center",
+                  pt: 0.25,
+                  borderTop: `1px solid ${BRAND.border}`,
+                }}
+              >
               <Typography
-                variant="caption"
-                sx={{ color: BRAND.muted, fontWeight: 700, mr: 0.5 }}
+                sx={{
+                  color: BRAND.muted,
+                  fontWeight: 700,
+                  fontSize: "0.7rem",
+                  mr: 0.25,
+                }}
               >
                 Filtros
               </Typography>
@@ -1433,9 +1464,14 @@ function Dashboard() {
                 select
                 label="Año"
                 size="small"
+                margin="dense"
                 value={anio}
                 onChange={(e) => setAnio(e.target.value)}
-                sx={{ minWidth: 110 }}
+                sx={{
+                  ...compactSelectSx,
+                  minWidth: { xs: "45%", sm: 88 },
+                  flex: { xs: "1 1 88px", sm: "0 0 auto" },
+                }}
               >
                 {anios.map((y) => (
                   <MenuItem key={y} value={y}>
@@ -1447,9 +1483,14 @@ function Dashboard() {
                 select
                 label="Mes"
                 size="small"
+                margin="dense"
                 value={mes}
                 onChange={(e) => setMes(e.target.value)}
-                sx={{ minWidth: 160 }}
+                sx={{
+                  ...compactSelectSx,
+                  minWidth: { xs: "45%", sm: 120 },
+                  flex: { xs: "1 1 120px", sm: "0 0 auto" },
+                }}
               >
                 <MenuItem value="">Todos</MenuItem>
                 {MESES.map((m) => (
@@ -1462,9 +1503,14 @@ function Dashboard() {
                 select
                 label="Área"
                 size="small"
+                margin="dense"
                 value={filtroArea}
                 onChange={(e) => setFiltroArea(e.target.value)}
-                sx={{ minWidth: 180 }}
+                sx={{
+                  ...compactSelectSx,
+                  minWidth: { xs: "45%", sm: 130 },
+                  flex: { xs: "1 1 130px", sm: "0 0 auto" },
+                }}
               >
                 <MenuItem value="">Todas</MenuItem>
                 {areas.map((a) => (
@@ -1477,10 +1523,15 @@ function Dashboard() {
                 select
                 label="Sub área"
                 size="small"
+                margin="dense"
                 value={filtroSubArea}
                 onChange={(e) => setFiltroSubArea(e.target.value)}
                 disabled={!filtroArea}
-                sx={{ minWidth: 180 }}
+                sx={{
+                  ...compactSelectSx,
+                  minWidth: { xs: "45%", sm: 130 },
+                  flex: { xs: "1 1 130px", sm: "0 0 auto" },
+                }}
               >
                 <MenuItem value="">Todas</MenuItem>
                 {subAreasCat.map((sa) => (
@@ -1495,34 +1546,23 @@ function Dashboard() {
                 startIcon={<FilterAltOff />}
                 disabled={!hayFiltros}
                 onClick={limpiarTodo}
-                sx={{ textTransform: "none" }}
+                sx={compactBtnSx}
               >
                 Limpiar
               </Button>
-              <Typography
-                variant="caption"
-                sx={{
-                  color: BRAND.muted,
-                  fontWeight: 600,
-                  width: { xs: "100%", sm: "auto" },
-                  ml: { sm: "auto" },
-                }}
-              >
-                Periodo: {labelPeriodo(anio, mes)}
-              </Typography>
               <Button
                 size="small"
                 variant="contained"
                 startIcon={<BarChartIcon />}
                 onClick={() => setVistaMagica(true)}
                 sx={{
-                  textTransform: "none",
+                  ...compactBtnSx,
                   bgcolor: BRAND.primary,
-                  boxShadow: `0 4px 14px ${BRAND.glow}`,
+                  boxShadow: "none",
                   "&:hover": { bgcolor: BRAND.primaryDark },
                 }}
               >
-                Ver graficas
+                Gráficas
               </Button>
               <Button
                 size="small"
@@ -1530,42 +1570,47 @@ function Dashboard() {
                 startIcon={<BarChartIcon />}
                 onClick={() => setVistaPoka(true)}
                 sx={{
-                  textTransform: "none",
+                  ...compactBtnSx,
                   bgcolor: "#00897B",
-                  boxShadow: "0 4px 14px rgba(0, 137, 123, 0.35)",
+                  boxShadow: "none",
                   "&:hover": { bgcolor: "#00695C" },
                 }}
               >
-                Graficas Poka Yoke
+                Poka Yoke
               </Button>
+              <Typography
+                sx={{
+                  color: BRAND.muted,
+                  fontWeight: 600,
+                  fontSize: "0.7rem",
+                  ml: { sm: "auto" },
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {labelPeriodo(anio, mes)}
+              </Typography>
+              </Box>
             </Paper>
 
             <Box
               sx={{
                 display: "grid",
-                gridTemplateColumns: { xs: "1fr", md: "1.15fr 0.85fr" },
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  lg: "minmax(0, 1.2fr) minmax(0, 1fr)",
+                },
                 gap: 0.75,
-                alignItems: "stretch",
-                flex: 1,
-                minHeight: 0,
-                overflow: "hidden",
+                alignItems: "start",
+                mt: 0.25,
               }}
             >
               <ChartSection
                 sx={{
                   mb: 0,
-                  height: "100%",
-                  minHeight: { xs: 280, md: 0 },
-                  display: "flex",
-                  flexDirection: "column",
-                  overflow: "hidden",
+                  minWidth: 0,
                 }}
                 bodySx={{
-                  flex: 1,
-                  minHeight: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  overflow: "hidden",
+                  minWidth: 0,
                 }}
                 title={
                   <Box
@@ -1641,67 +1686,57 @@ function Dashboard() {
                 ) : (
                   <Box
                     sx={{
-                      flex: 1,
-                      minHeight: 0,
-                      overflowY: "auto",
-                      overflowX: "hidden",
-                      pr: 0.5,
+                      borderRadius: 1,
+                      border: `1px solid ${BRAND.border}`,
+                      px: 1,
+                      py: 0.75,
+                      minWidth: 0,
+                      overflowX: "auto",
                     }}
                   >
-                    <Box
+                    <Typography
                       sx={{
-                        borderRadius: 1,
-                        border: `1px solid ${BRAND.border}`,
-                        px: 1,
-                        py: 0.75,
+                        fontWeight: 800,
+                        color: BRAND.ink,
+                        fontSize: "0.8rem",
+                        mb: 0.5,
                       }}
                     >
-                      <Typography
-                        sx={{
-                          fontWeight: 800,
-                          color: BRAND.ink,
-                          fontSize: "0.8rem",
-                          mb: 0.5,
-                        }}
-                      >
-                        {drillArea ? "Por sub área" : "Por área"}
-                      </Typography>
-                      <HorizontalPctChart
-                        data={avanceVista}
-                        dataKey="avance"
-                        tooltipLabel="Avance"
-                        onBarClick={onClickAvance}
-                        yWidth={148}
-                        showXAxis
-                        fillContainer={false}
-                        rowKey="id"
-                        selectedId={
-                          drillSubArea
-                            ? String(drillSubArea.id_sub_area)
-                            : drillArea
-                              ? String(drillArea.id_area)
-                              : null
-                        }
-                        getFill={(entry) => colorBarra(entry.avance)}
-                      />
-                    </Box>
+                      {drillArea ? "Por sub área" : "Por área"}
+                    </Typography>
+                    <HorizontalPctChart
+                      data={avanceVista}
+                      dataKey="avance"
+                      tooltipLabel="Avance"
+                      onBarClick={onClickAvance}
+                      yWidth={132}
+                      showXAxis
+                      fillContainer={false}
+                      rowKey="id"
+                      selectedId={
+                        drillSubArea
+                          ? String(drillSubArea.id_sub_area)
+                          : drillArea
+                            ? String(drillArea.id_area)
+                            : null
+                      }
+                      getFill={(entry) => colorBarra(entry.avance)}
+                    />
                   </Box>
                 )}
               </ChartSection>
 
               <Box
                 sx={{
-                  display: "flex",
-                  flexDirection: "column",
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", lg: "1fr" },
                   gap: 1,
                   minWidth: 0,
-                  minHeight: 0,
-                  height: "100%",
-                  overflow: "hidden",
+                  alignContent: "start",
                 }}
               >
                 <ChartSection
-                  sx={{ mb: 0, flex: 1, minHeight: 0 }}
+                  sx={{ mb: 0, minWidth: 0 }}
                   title={
                     <Box
                       sx={{
@@ -1745,13 +1780,13 @@ function Dashboard() {
                       pct={eficienciaStats.pct}
                       sumSi={eficienciaStats.sumSi}
                       sumNo={eficienciaStats.sumNo}
-                      height={150}
+                      height={168}
                     />
                   )}
                 </ChartSection>
 
                 <ChartSection
-                  sx={{ mb: 0, flex: 1, minHeight: 0 }}
+                  sx={{ mb: 0, minWidth: 0 }}
                   title={
                     <Box
                       sx={{
@@ -1792,7 +1827,7 @@ function Dashboard() {
                     </Box>
                   ) : (
                     <Box>
-                      <NcPieChart data={ncItems} height={150} hideLegend />
+                      <NcPieChart data={ncItems} height={168} hideLegend />
                       <NcTipoList items={ncItems} />
                     </Box>
                   )}

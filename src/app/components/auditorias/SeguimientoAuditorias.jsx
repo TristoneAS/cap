@@ -54,6 +54,31 @@ import {
   tablePaperSx,
 } from "@/libs/table_ui";
 
+const compactSelectSx = {
+  "& .MuiInputBase-root": {
+    height: 32,
+    fontSize: "0.8125rem",
+  },
+  "& .MuiInputLabel-root": {
+    fontSize: "0.75rem",
+  },
+  "& .MuiSelect-select": {
+    py: 0.5,
+  },
+};
+
+const compactBtnSx = {
+  textTransform: "none",
+  minHeight: 30,
+  py: 0.25,
+  px: 1,
+  fontSize: "0.8125rem",
+  "& .MuiButton-startIcon": {
+    mr: 0.5,
+    "& .MuiSvgIcon-root": { fontSize: 16 },
+  },
+};
+
 function chipEstado(estado) {
   const bgcolor = colorEstadoAuditoria(estado);
   return (
@@ -85,6 +110,7 @@ function SeguimientoAuditorias() {
   const [filtroAuditor, setFiltroAuditor] = useState(
     () => searchParams.get("emp_id") || "",
   );
+  const [filtroEstado, setFiltroEstado] = useState("");
   const [rows, setRows] = useState([]);
   const [areas, setAreas] = useState([]);
   const [subAreas, setSubAreas] = useState([]);
@@ -115,7 +141,8 @@ function SeguimientoAuditorias() {
     anio !== actual.anio ||
     !!filtroArea ||
     !!filtroSubArea ||
-    !!filtroAuditor;
+    !!filtroAuditor ||
+    !!filtroEstado;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -236,9 +263,15 @@ function SeguimientoAuditorias() {
           .toLowerCase();
         if (!empId.includes(q) && !nombre.includes(q)) return false;
       }
+      const estado = String(r.estado || "").toLowerCase();
+      if (filtroEstado === "pendientes") {
+        if (estado === "completada") return false;
+      } else if (filtroEstado === "completada") {
+        if (estado !== "completada") return false;
+      }
       return true;
     });
-  }, [rows, filtroArea, filtroSubArea, filtroAuditor]);
+  }, [rows, filtroArea, filtroSubArea, filtroAuditor, filtroEstado]);
 
   const cerrarReasignar = () => {
     setReasignarRow(null);
@@ -566,21 +599,22 @@ function SeguimientoAuditorias() {
   return (
     <DashboardShell selectedItemId="seguimiento-auditorias">
       <Box sx={{ maxWidth: PAGE_MAX_WIDTH, mx: "auto", width: "100%" }}>
-        <Typography variant="h5" sx={pageTitleSx}>
+        <Typography variant="h5" sx={{ ...pageTitleSx, mb: 0.25 }}>
           Seguimiento de auditorías
         </Typography>
-        <Typography variant="body2" sx={pageSubtitleSx}>
+        <Typography variant="body2" sx={{ ...pageSubtitleSx, mb: 1, fontSize: "0.8125rem" }}>
           Ve todas las auditorías del mes: área, sub área, preguntas, a quién se
           asignó, si ya se respondió y el detalle de cada respuesta.
         </Typography>
 
         <Paper
           sx={{
-            p: 2,
-            mb: 3,
+            p: 0.75,
+            mb: 1,
             borderRadius: 1,
+            border: `1px solid ${BRAND.border}`,
             display: "flex",
-            gap: 2,
+            gap: 0.5,
             flexWrap: "wrap",
             alignItems: "center",
           }}
@@ -589,9 +623,10 @@ function SeguimientoAuditorias() {
             select
             label="Año"
             size="small"
+            margin="dense"
             value={anio}
             onChange={(e) => setAnio(e.target.value)}
-            sx={{ minWidth: 110 }}
+            sx={{ ...compactSelectSx, minWidth: { xs: "30%", sm: 88 } }}
           >
             {anios.map((y) => (
               <MenuItem key={y} value={y}>
@@ -603,9 +638,10 @@ function SeguimientoAuditorias() {
             select
             label="Mes"
             size="small"
+            margin="dense"
             value={mes}
             onChange={(e) => setMes(e.target.value)}
-            sx={{ minWidth: 160 }}
+            sx={{ ...compactSelectSx, minWidth: { xs: "30%", sm: 118 } }}
           >
             <MenuItem value="">Todos</MenuItem>
             {MESES.map((m) => (
@@ -620,7 +656,8 @@ function SeguimientoAuditorias() {
             value={filtroArea}
             onChange={(e) => setFiltroArea(e.target.value)}
             size="small"
-            sx={{ minWidth: 200 }}
+            margin="dense"
+            sx={{ ...compactSelectSx, minWidth: { xs: "45%", sm: 128 } }}
           >
             <MenuItem value="">Todas</MenuItem>
             {areas.map((a) => (
@@ -635,8 +672,9 @@ function SeguimientoAuditorias() {
             value={filtroSubArea}
             onChange={(e) => setFiltroSubArea(e.target.value)}
             size="small"
+            margin="dense"
             disabled={!filtroArea}
-            sx={{ minWidth: 200 }}
+            sx={{ ...compactSelectSx, minWidth: { xs: "45%", sm: 128 } }}
           >
             <MenuItem value="">Todas</MenuItem>
             {subAreas.map((sa) => (
@@ -651,9 +689,28 @@ function SeguimientoAuditorias() {
             value={filtroAuditor}
             onChange={(e) => setFiltroAuditor(e.target.value)}
             size="small"
-            sx={{ minWidth: 220 }}
+            margin="dense"
+            sx={{
+              ...compactSelectSx,
+              minWidth: { xs: "45%", sm: 140 },
+              "& .MuiInputBase-input": { py: 0.5 },
+            }}
           />
+          <TextField
+            select
+            label="Estado"
+            size="small"
+            margin="dense"
+            value={filtroEstado}
+            onChange={(e) => setFiltroEstado(e.target.value)}
+            sx={{ ...compactSelectSx, minWidth: { xs: "30%", sm: 118 } }}
+          >
+            <MenuItem value="">Todos</MenuItem>
+            <MenuItem value="pendientes">Pendientes</MenuItem>
+            <MenuItem value="completada">Completada</MenuItem>
+          </TextField>
           <Button
+            size="small"
             variant="outlined"
             startIcon={<FilterAltOff />}
             disabled={!filtrosActivos}
@@ -663,12 +720,21 @@ function SeguimientoAuditorias() {
               setFiltroArea("");
               setFiltroSubArea("");
               setFiltroAuditor("");
+              setFiltroEstado("");
             }}
-            sx={{ textTransform: "none" }}
+            sx={compactBtnSx}
           >
-            Limpiar filtros
+            Limpiar
           </Button>
-          <Typography variant="caption" sx={{ color: BRAND.muted, ml: "auto" }}>
+          <Typography
+            variant="caption"
+            sx={{
+              color: BRAND.muted,
+              fontSize: "0.7rem",
+              ml: { sm: "auto" },
+              whiteSpace: "nowrap",
+            }}
+          >
             {labelPeriodo(anio, mes)} · {filtradas.length} auditorías
           </Typography>
         </Paper>

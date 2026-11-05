@@ -792,8 +792,11 @@ function DashboardShell({ selectedItemId, children }) {
           p: { xs: 1.5, sm: 2 },
           pt: { xs: 1.5, sm: 2 },
           width: `calc(100% - ${drawerWidth}px)`,
+          maxWidth: `calc(100% - ${drawerWidth}px)`,
+          minWidth: 0,
           minHeight: "100vh",
           bgcolor: BRAND.bg,
+          boxSizing: "border-box",
         }}
       >
         <Toolbar sx={{ minHeight: { xs: 48, sm: 56 } }} />
