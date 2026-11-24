@@ -8,14 +8,18 @@ export async function GET() {
     try {
       [rows] = await empleados.query(
         `SELECT * FROM del_empleados
-         WHERE UPPER(TRIM(emp_categoria)) IN ('ADMINISTRATIVOS', 'ADMINISTRATIVE')
+         WHERE UPPER(TRIM(emp_categoria)) IN (
+             'ADMINISTRATIVOS', 'ADMINISTRATIVE', 'INDIRECT'
+           )
            AND emp_activo = 1
          ORDER BY emp_nombre ASC`,
       );
     } catch {
       [rows] = await empleados.query(
         `SELECT * FROM del_empleados
-         WHERE UPPER(TRIM(emp_categoria)) IN ('ADMINISTRATIVOS', 'ADMINISTRATIVE')
+         WHERE UPPER(TRIM(emp_categoria)) IN (
+             'ADMINISTRATIVOS', 'ADMINISTRATIVE', 'INDIRECT'
+           )
          ORDER BY emp_nombre ASC`,
       );
     }
