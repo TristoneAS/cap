@@ -1,25 +1,24 @@
 import { empleados } from "@/libs/empleados";
 import { mapEmpleadoRow, nombreCompletoEmpleado } from "@/libs/empleado_mapper";
+import { sqlFiltroCategoriaResponsable } from "@/libs/empleados_responsables";
 import { jsonError, jsonOk } from "@/libs/api_helpers";
 
+/** Lista para Responsable en auditorías LPA y Poka Yoke (misma fuente). */
 export async function GET() {
   try {
+    const catWhere = sqlFiltroCategoriaResponsable();
     let rows;
     try {
       [rows] = await empleados.query(
         `SELECT * FROM del_empleados
-         WHERE UPPER(TRIM(emp_categoria)) IN (
-             'ADMINISTRATIVOS', 'ADMINISTRATIVE', 'INDIRECT'
-           )
+         WHERE ${catWhere}
            AND emp_activo = 1
          ORDER BY emp_nombre ASC`,
       );
     } catch {
       [rows] = await empleados.query(
         `SELECT * FROM del_empleados
-         WHERE UPPER(TRIM(emp_categoria)) IN (
-             'ADMINISTRATIVOS', 'ADMINISTRATIVE', 'INDIRECT'
-           )
+         WHERE ${catWhere}
          ORDER BY emp_nombre ASC`,
       );
     }
@@ -34,6 +33,6 @@ export async function GET() {
 
     return jsonOk(data);
   } catch (error) {
-    return jsonError("Error al consultar empleados administrativos", 500, error.message);
+    return jsonError("Error al consultar responsables", 500, error.message);
   }
 }

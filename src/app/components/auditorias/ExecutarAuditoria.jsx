@@ -136,6 +136,7 @@ function ExecutarAuditoria({ idAuditoria }) {
         params.set("emp_id", empId);
       }
       const audUrl = `/api/auditorias/${idAuditoria}?${params.toString()}`;
+      // Responsable LPA y Poka: /api/empleados/administrativos (Administrativos + Indirect)
       const [audRes, accRes, ncRes, empRes] = await Promise.all([
         fetch(audUrl),
         fetch("/api/acciones"),
